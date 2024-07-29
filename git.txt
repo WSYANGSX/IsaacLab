@@ -1,0 +1,61 @@
+当你从GitHub上拷贝（通常是通过git clone或git fork）了别人的仓库，并希望在这个基础上进行修改，然后将这些修改上传到自己的GitHub仓库，同时保持与原始仓库的同步，你可以按照以下步骤操作：
+1. Fork 原始仓库（如果你还没有做）
+
+如果你还没有Fork原始仓库，首先去GitHub上找到那个仓库，点击右上角的Fork按钮。这会在你的GitHub账户下创建一个该仓库的副本。
+2. 克隆你的Fork仓库
+
+使用git clone命令克隆你Fork的仓库到你的本地机器上。例如：
+
+bash
+
+git clone https://github.com/your-username/repository-name.git  
+
+cd repository-name
+
+3. 进行修改并提交
+
+在你的本地仓库中，你可以自由地修改文件，然后使用Git进行提交。例如：
+
+bash
+
+git add .  
+
+git commit -m "描述你的修改"
+
+4. 推送修改到你的GitHub仓库
+
+将你的修改推送到GitHub上的Fork仓库：
+
+bash
+
+git push origin main  # 或者你的默认分支名，如果是master
+
+5. 保持与原始仓库同步
+
+为了能够保持你的Fork仓库与原始仓库同步，你需要添加原始仓库作为远程仓库（如果你还没有这么做的话），并定期从那里拉取最新的更改。
+
+    添加原始仓库作为另一个远程仓库（例如命名为upstream）：
+
+bash
+
+git remote add upstream https://github.com/original-owner/repository-name.git
+
+    拉取上游仓库的更改并合并到你的Fork仓库中：
+
+bash
+
+git fetch upstream  
+git checkout main  # 切换到你的主分支  
+
+git merge upstream/main  # 将上游仓库的main分支合并到你的main分支
+
+注意：这里main是默认分支名，GitHub在2020年默认从master改为main，但一些旧仓库可能仍然使用master。
+
+    解决可能出现的合并冲突，并再次提交和推送：
+
+如果在合并过程中出现冲突，你需要手动解决这些冲突，然后再次提交并推送你的更改。
+6. 创建Pull Request（可选）
+
+如果你希望你的修改被合并到原始仓库中，你可以在GitHub上向原始仓库提交一个Pull Request（PR）。在GitHub的你的Fork仓库页面上，你应该能看到一个按钮来创建新的PR。
+
+通过以上步骤，你可以保持你的Fork仓库与原始仓库的同步，并在自己的GitHub仓库中自由地修改和提交更改。
