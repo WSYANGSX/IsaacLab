@@ -23,7 +23,7 @@ def subgoal_reach(
     asset: RigidObject = env.scene[asset_cfg.name]
 
     # extract the subgoal of env
-    curr_subgoal = env.subgoal  # type: ignore
+    curr_subgoal = env.observation  # type: ignore
     curr_subgoal_pos = curr_subgoal[:, :3]
     curr_subgoal_quat = curr_subgoal[:, 3:7]
 

@@ -87,7 +87,7 @@ class ActionsCfg:
     """Action specifications for the MDP."""
 
     arm_action: ActionTerm = mdp.ArmActionCfg(
-        policy_path="/home/yangxf/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/2024-06-26_17-48-24/"
+        policy_path="/home/yangxf/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/"
     )
     gripper_action: ActionTerm = mdp.GripperActionCfg()
 
@@ -101,36 +101,41 @@ class ObservationsCfg:
         """Observations for policy group."""
 
         # observation terms (order preserved)
-        cube_pose = ObsTerm(
-            func=mdp.get_asset_local_pose,
+        cube_pos = ObsTerm(
+            func=mdp.get_asset_local_pos,
             params={"asset_cfg": SceneEntityCfg("cube")},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            noise=Unoise(n_min=-0.001, n_max=0.001),
+        )
+
+        cube_rot = ObsTerm(
+            func=mdp.get_asset_local_rot,
+            params={"asset_cfg": SceneEntityCfg("cube")},
+            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         ee_pose = ObsTerm(
-            func=mdp.get_ee_local_pose,
+            func=mdp.get_grip_point_local_pose,
             params={
                 "asset_cfg": SceneEntityCfg(name="robot", body_names=["panda_hand"])
             },
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         goal_pose = ObsTerm(
-            func=mdp.get_goal_local_pose,
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            func=mdp.get_subgoal_local_pose,
         )
 
-        arm_joint_pos = ObsTerm(
-            func=mdp.get_arm_position,
-            params={"asset_cfg": SceneEntityCfg("robot")},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
+        # arm_joint_pos = ObsTerm(
+        #     func=mdp.get_arm_position,
+        #     params={"asset_cfg": SceneEntityCfg("robot")},
+        #     noise=Unoise(n_min=-0.01, n_max=0.01),
+        # )
 
-        arm_joint_vel = ObsTerm(
-            func=mdp.get_arm_velocity,
-            params={"asset_cfg": SceneEntityCfg("robot")},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
+        # arm_joint_vel = ObsTerm(
+        #     func=mdp.get_arm_velocity,
+        #     params={"asset_cfg": SceneEntityCfg("robot")},
+        #     noise=Unoise(n_min=-0.01, n_max=0.01),
+        # )
 
         gripper_joint_pos = ObsTerm(
             func=mdp.get_gripper_position,
@@ -143,8 +148,6 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("robot")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
-
-        sub_goal = ObsTerm(func=mdp.get_subgoal, noise=Unoise(n_min=-0.01, n_max=0.01))
 
         actions = ObsTerm(func=mdp.last_action)
 

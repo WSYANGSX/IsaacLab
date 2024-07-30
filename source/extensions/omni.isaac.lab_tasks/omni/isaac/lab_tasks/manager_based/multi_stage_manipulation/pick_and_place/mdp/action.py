@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import torch
 from typing import TYPE_CHECKING
 from dataclasses import MISSING
@@ -21,12 +22,13 @@ from omni.isaac.lab.utils.math import (
     quat_conjugate,
     normalize,
     combine_frame_transforms,
+    unscale_transform,
 )
 from .observations import (
-    get_ee_local_pose,
-    get_ee_goal_dist,
-    get_ee_goal_rot_diff,
-    get_subgoal,
+    get_grip_point_local_pose,
+    get_subgoal_local_pose,
+    get_grip_goal_dist,
+    get_grip_goal_rot_diff,
 )
 from ..prtpr_model import PrtprModel
 
@@ -86,10 +88,10 @@ class ArmAction(ActionTerm):
             class LlPolicy(ObsGroup):
                 """Observations for ll_policy group."""
 
-                ee_pose_l = ObsTerm(func=get_ee_local_pose)
-                goal_pose_l = ObsTerm(func=get_subgoal)
-                dist = ObsTerm(func=get_ee_goal_dist)
-                rot_diff = ObsTerm(func=get_ee_goal_rot_diff)
+                grip_point_pose_l = ObsTerm(func=get_grip_point_local_pose)
+                goal_pose_l = ObsTerm(func=get_subgoal_local_pose)
+                dist = ObsTerm(func=get_grip_goal_dist)
+                rot_diff = ObsTerm(func=get_grip_goal_rot_diff)
 
                 def __post_init__(self):
                     self.enable_corruption = True
@@ -99,6 +101,21 @@ class ArmAction(ActionTerm):
 
         # add the low level observations to the observation manager
         self._low_level_obs_manager = ObservationManager(LowLevelObsCfg, env)
+
+        # ll actions limits
+        self.ll_action_limits = torch.tensor(
+            [
+                [-math.pi, math.pi],
+                [-math.pi / 2, math.pi / 2],
+                [-0.02, 0.02],
+                [-math.pi / 90, math.pi / 90],
+            ],
+            dtype=torch.float32,
+            device=env.device,
+        )
+        self.ll_action_lower_limits, self.ll_action_upper_limits = torch.t(
+            self.ll_action_limits
+        )
 
         self._counter = 0
 
@@ -136,10 +153,17 @@ class ArmAction(ActionTerm):
             :, self.ee_jacobi_idx, :, self.robot_entity_cfg.joint_ids
         ]
         joint_pos = self.robot.data.joint_pos[:, self.robot_entity_cfg.joint_ids]
-
+        curr_hand_pos = (
+            self.robot.data.body_pos_w[:, self.robot_entity_cfg.body_ids[0]]  # type: ignore
+            - self._env.scene.env_origins
+        )
+        curr_hand_rot = self.robot.data.body_quat_w[
+            :, self.robot_entity_cfg.body_ids[0]  # type: ignore
+        ]
         # compute the joint commands
+        self.diff_ik_controller.set_command(torch.cat((tar_hand_pos, tar_hand_rot)))
         self.joint_pos_des = self.diff_ik_controller.compute(
-            tar_hand_pos, tar_hand_rot, jacobian, joint_pos
+            curr_hand_pos, curr_hand_rot, jacobian, joint_pos
         )
 
     def apply_actions(self):
@@ -161,7 +185,7 @@ class ArmAction(ActionTerm):
             # create markers if necessary for the first tome
             if not hasattr(self, "next_ee_goal_pose"):
                 # next goal
-                marker_cfg = FRAME_MARKER_CFG.copy()
+                marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
                 marker_cfg.prim_path = "/Visuals/Actions/next_ee_goal"
                 marker_cfg.markers["frame"].scale = (0.5, 0.5, 0.5)
                 self.next_ee_goal_visualizer = VisualizationMarkers(marker_cfg)
@@ -211,10 +235,10 @@ class ArmAction(ActionTerm):
         ll_policy_action = (
             self.policy.get_action(low_level_obs).clone().clamp(-1.0, 1.0)
         )
-        ll_policy_action = scale(
+        ll_policy_action = unscale_transform(
             ll_policy_action,
-            self.policy.action_lower_limits,
-            self.policy.action_upper_limits,
+            self.ll_action_lower_limits,
+            self.ll_action_upper_limits,
         )
 
         # ll_policy_action mask
@@ -273,7 +297,7 @@ class ArmActionCfg(ActionTermCfg):
     """ Class of the action term."""
     asset_name: str = "robot"
     """Name of the asset in the environment for which the commands are generated."""
-    policy_path: str = MISSING
+    policy_path: str = MISSING  # type: ignore
     """Path to the low level policy (.pt files)."""
     low_level_decimation: int = 4
     """Decimation factor for the low level action term."""
