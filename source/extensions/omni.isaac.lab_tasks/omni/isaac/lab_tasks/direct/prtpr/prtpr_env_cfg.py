@@ -58,7 +58,7 @@ class PrtprEnvCfg(DirectRLEnvCfg):
 
     # target
     target: VisualizationMarkersCfg = VisualizationMarkersCfg(
-        prim_path="Visual/markers",
+        prim_path="/Visual/markers",
         markers={
             "target": sim_utils.UsdFileCfg(
                 usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block_instanceable.usd",
