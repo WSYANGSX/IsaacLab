@@ -79,7 +79,7 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    ...
+    pass
 
 
 @configclass
