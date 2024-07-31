@@ -3,7 +3,7 @@ from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.envs import ManagerBasedRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
-from omni.isaac.lab.assets import ArticulationCfg, AssetBaseCfg
+from omni.isaac.lab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from omni.isaac.lab.managers import EventTermCfg as EventTerm
 from omni.isaac.lab.managers import ObservationGroupCfg as ObsGroup
 from omni.isaac.lab.managers import ObservationTermCfg as ObsTerm
@@ -59,26 +59,26 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
     )
 
     # cube
-    cube = AssetBaseCfg(
+    cube: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block_instanceable.usd",
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
+        init_state=RigidObjectCfg.InitialStateCfg(
             pos=(0.275, 0.0, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
         ),
     )
 
     # target
-    target = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/Cube",
+    target: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Target",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block.usd",
             visible=True,
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
+        init_state=RigidObjectCfg.InitialStateCfg(
             pos=(-0.275, 0.0, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
         ),
     )
@@ -124,13 +124,15 @@ class ObservationsCfg:
         # observation terms (order preserved)
         cube_pos = ObsTerm(
             func=mdp.get_asset_local_pos,
-            params={"asset_cfg": SceneEntityCfg("cube")},
+            params={
+                "asset_cfg": SceneEntityCfg("cube", body_names=["object"])
+            },  # 必须传入参数，因为ObsTerm的params参数的默认值为dict()
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         cube_rot = ObsTerm(
             func=mdp.get_asset_local_rot,
-            params={"asset_cfg": SceneEntityCfg("cube")},
+            params={"asset_cfg": SceneEntityCfg("cube", body_names=["object"])},
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
@@ -166,13 +168,17 @@ class ObservationsCfg:
 
         gripper_joint_pos = ObsTerm(
             func=mdp.get_gripper_position,
-            params={"asset_cfg": SceneEntityCfg("robot")},
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["panda_finger_.*"])
+            },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
         gripper_joint_vel = ObsTerm(
             func=mdp.get_gripper_velocity,
-            params={"asset_cfg": SceneEntityCfg("robot")},
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["panda_finger_.*"])
+            },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
@@ -269,3 +275,4 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.lookat = (0.0, 0.0, 0.0)
         # simulation settings
         self.sim.dt = 1.0 / 60.0
+        self.sim.render_interval = 2

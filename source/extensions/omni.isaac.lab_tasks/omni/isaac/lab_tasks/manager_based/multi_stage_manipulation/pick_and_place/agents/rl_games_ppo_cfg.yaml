@@ -1,0 +1,66 @@
+params:
+  seed: 42
+
+  env:
+    clip_observations: 5
+
+  algo:
+    name: a2c_discrete
+
+  model:
+    name: discrete_a2c
+
+  network:
+    name: actor_critic
+    separate: False
+    space:
+      discrete:
+
+    mlp:
+      units: [64, 64]
+      activation: elu
+      d2rl: False
+
+      initializer:
+        name: default
+      regularizer:
+        name: None
+
+  load_checkpoint: False # flag which sets whether to load the checkpoint
+  load_path: '' # path to the checkpoint to load
+
+  config:
+    env_name: rlgpu
+    reward_shaper:
+      scale_value: 1.0
+    normalize_advantage: True
+    gamma: 0.99
+    tau: 0.9
+    learning_rate: 8e-4
+    name: multi_stage_pick_and_place
+    score_to_win: 10000
+    grad_norm: 1.0
+    entropy_coef: 0.01
+    truncate_grads: True
+    e_clip: 0.2
+    horizon_length: 24
+    minibatch_size: 24576
+    mini_epochs: 5
+    critic_coef: 1
+    lr_schedule: adaptive
+    kl_threshold: 0.008
+    normalize_input: True
+    save_best_after: 200
+    device: 'cuda:0'
+    device_name: 'cuda:0'
+    multi_gpu: False 
+    ppo: True
+    mixed_precision: False
+    value_bootstrap: True
+    num_actors: -1
+    schedule_type: legacy
+    max_epochs: 1000
+    save_frequency: 100
+    print_stats: True  
+    clip_value: True
+

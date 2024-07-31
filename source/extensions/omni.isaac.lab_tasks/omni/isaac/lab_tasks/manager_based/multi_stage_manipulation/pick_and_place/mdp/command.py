@@ -75,14 +75,14 @@ class SubgoalCommand(CommandTerm):
     def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
         """reset subgoals"""
         if env_ids is None:
-            env_ids = slice(None)
+            env_ids = slice(None)   # type: ignore
         # set the command counter to zero
         self.command_counter[env_ids] = 0
         self.subgoals_counter[env_ids] = (
             0  # self._resample()应当以subgoals_counter为依据进行采样
         )
         # resample the command
-        self._resample(env_ids)
+        self._resample(env_ids)  # type: ignore
         # add logging metrics
         extras = {}
         for metric_name, metric_value in self.metrics.items():
@@ -142,7 +142,7 @@ class SubgoalCommand(CommandTerm):
         # create markers if necessary for the first tome
         if debug_vis:
             if not hasattr(self, "subgoal_visualizer"):
-                marker_cfg = FRAME_MARKER_CFG.copy()
+                marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
                 marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
                 marker_cfg.prim_path = "/Visuals/Command/subgoal_goal"
                 self.subgoal_visualizer = VisualizationMarkers(marker_cfg)
@@ -166,8 +166,8 @@ class SubgoalCommandCfg(CommandTermCfg):
 
     class_type: type = SubgoalCommand
 
-    asset_name: str = MISSING
+    asset_name: str = MISSING  # type: ignore
     """Name of the asset in the environment for which the commands are generated."""
 
-    subgoals_list: list = MISSING
+    subgoals_list: list = MISSING  # type: ignore
     """List of subgoals in the environment for the robot to achieve sequentially."""

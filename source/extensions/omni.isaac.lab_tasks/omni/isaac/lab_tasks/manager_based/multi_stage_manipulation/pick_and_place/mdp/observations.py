@@ -3,14 +3,15 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from omni.isaac.lab.assets import RigidObject
+from omni.isaac.lab.assets import RigidObject, Articulation
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.envs.mdp import joint_pos, joint_vel
 from omni.isaac.lab.utils.math import (
     combine_frame_transforms,
-    quat_mul,
-    quat_conjugate,
     quat_unique,
+    quat_mul,
+    normalize,
+    quat_conjugate,
 )
 
 if TYPE_CHECKING:
@@ -54,13 +55,13 @@ def get_grip_point_local_pose(
     """get local position and oritation of end_effector"""
 
     # extract the asset (to enable type hinting)
-    asset: RigidObject = env.scene[asset_cfg.name]
+    asset: Articulation = env.scene[asset_cfg.name]
 
     # obtain panda hand pose
     panda_hand_pos_l = (
-        asset.data.body_pos_w[:, asset_cfg.body_ids] - env.scene.env_origins
+        asset.data.body_pos_w[:, asset_cfg.body_ids[0]] - env.scene.env_origins
     )
-    panda_hand_quat_l = asset.data.body_quat_w[:, asset_cfg.body_ids]
+    panda_hand_quat_l = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]
 
     # compute gripper frame local pose
     gripper_frame_in_hand_frame = (0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0)
@@ -79,11 +80,19 @@ def get_grip_point_local_pose(
 
 
 def get_subgoal_local_pose(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Asset subgoal position and orentation in the local frame."""
+    # extract goal pose
+    subgoal_pose = env.command_manager.get_command("subgoal_command")
+
+    return subgoal_pose
+
+
+def get_target_pose(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Asset target position and orentation in the local frame."""
     # extract goal pose
-    goal_pos, goal_quat = env.command_manager.get_command("target_pose")
+    subgoal_pose = env.command_manager.get_command("subgoal_command")
 
-    return torch.cat((goal_pos, goal_quat), dim=-1)
+    return subgoal_pose
 
 
 def get_grip_goal_dist(
@@ -96,7 +105,7 @@ def get_grip_goal_dist(
     grip_pos = grip_point_pose[:, :3]
     subgoal_pos = subgoal_pose[:, :3]
 
-    return torch.norm(grip_pos - subgoal_pos, p=2, dim=-1)
+    return torch.norm(grip_pos - subgoal_pos, p=2, dim=-1, keepdim=True)
 
 
 def get_grip_goal_rot_diff(
@@ -109,7 +118,7 @@ def get_grip_goal_rot_diff(
     grip_rot = grip_point_pose[:, 3:7]
     subgoal_rot = subgoal_pose[:, 3:7]
 
-    return rotation_distance(subgoal_rot, grip_rot)
+    return normalize(quat_mul(subgoal_rot, quat_conjugate(grip_rot)))
 
 
 def get_arm_position(
@@ -154,17 +163,3 @@ def get_gripper_velocity(
     vel_data = joint_vel(env, asset_cfg)
 
     return vel_data
-
-
-"""
-Helper function
-"""
-
-
-@torch.jit.script
-def rotation_distance(object_rot, target_rot):
-    # Orientation alignment for the cube in hand and goal cube
-    quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
-    return 2.0 * torch.asin(
-        torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)
-    )  # changed quat convention

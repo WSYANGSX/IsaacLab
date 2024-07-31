@@ -31,13 +31,14 @@ from .observations import (
     get_grip_goal_rot_diff,
 )
 from ..prtpr_model import PrtprModel
+from omni.isaac.lab.controllers import (
+    DifferentialIKControllerCfg,
+    DifferentialIKController,
+)
+
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
-    from omni.isaac.lab.controllers.differential_ik import (
-        DifferentialIKControllerCfg,
-        DifferentialIKController,
-    )
 
 
 class ArmAction(ActionTerm):
@@ -66,6 +67,7 @@ class ArmAction(ActionTerm):
         self.robot_entity_cfg = SceneEntityCfg(
             "robot", joint_names=["panda_joint.*"], body_names=["panda_hand"]
         )
+        self.robot_entity_cfg.resolve(env.scene)    # 必须先resolve()然后再用
         self.ee_jacobi_idx = self.robot_entity_cfg.body_ids[0] - 1  # type: ignore
 
         # load policy
@@ -88,10 +90,23 @@ class ArmAction(ActionTerm):
             class LlPolicy(ObsGroup):
                 """Observations for ll_policy group."""
 
-                grip_point_pose_l = ObsTerm(func=get_grip_point_local_pose)
+                grip_point_pose_l = ObsTerm(
+                    func=get_grip_point_local_pose,
+                    params={"asset_cfg": SceneEntityCfg("robot", body_names=["panda_hand"])},
+                )
                 goal_pose_l = ObsTerm(func=get_subgoal_local_pose)
-                dist = ObsTerm(func=get_grip_goal_dist)
-                rot_diff = ObsTerm(func=get_grip_goal_rot_diff)
+                dist = ObsTerm(
+                    func=get_grip_goal_dist,
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=["panda_hand"])
+                    },
+                )
+                rot_diff = ObsTerm(
+                    func=get_grip_goal_rot_diff,
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=["panda_hand"])
+                    },
+                )
 
                 def __post_init__(self):
                     self.enable_corruption = True
@@ -100,7 +115,8 @@ class ArmAction(ActionTerm):
             ll_policy: LlPolicy = LlPolicy()
 
         # add the low level observations to the observation manager
-        self._low_level_obs_manager = ObservationManager(LowLevelObsCfg, env)
+        self.low_level_obs_cfg = LowLevelObsCfg()
+        self._low_level_obs_manager = ObservationManager(self.low_level_obs_cfg, env)
 
         # ll actions limits
         self.ll_action_limits = torch.tensor(
