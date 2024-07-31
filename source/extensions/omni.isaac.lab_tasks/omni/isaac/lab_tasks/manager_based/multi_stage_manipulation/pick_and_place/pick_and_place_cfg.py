@@ -74,12 +74,19 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
 # MDP settings
 ###
 
+subgoals_list = []
+
 
 @configclass
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    pass
+    subgoal_command = mdp.SubgoalCommandCfg(
+        resampling_time_range=(1.0, 1.0),
+        debug_vis=True,
+        asset_name="robot",
+        subgoals_list=subgoals_list,
+    )
 
 
 @configclass
