@@ -69,6 +69,20 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
         ),
     )
 
+    # target
+    target = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/Cube",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block.usd",
+            visible=True,
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(
+            pos=(-0.275, 0.0, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
+        ),
+    )
+
 
 ###
 # MDP settings
@@ -128,8 +142,14 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
-        goal_pose = ObsTerm(
+        subgoal_pose = ObsTerm(
             func=mdp.get_subgoal_local_pose,
+        )
+
+        target_pose = ObsTerm(
+            func=mdp.get_asset_local_pos,
+            params={"asset_cfg": SceneEntityCfg("target")},
+            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         # arm_joint_pos = ObsTerm(
@@ -183,8 +203,8 @@ class RewardsCfg:
         func=mdp.final_goal_reach,
         weight=1,
         params={
-            "asset_cfg": SceneEntityCfg("cube"),
-            "command_name": "ee_pose",
+            "asset_cfg1": SceneEntityCfg("cube"),
+            "asset_cfg2": SceneEntityCfg("target"),
         },
     )
 
@@ -197,7 +217,11 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     # task complete
     task_complete = DoneTerm(
-        mdp.task_complete, params={"asset_cfg": SceneEntityCfg("cube")}
+        mdp.task_complete,
+        params={
+            "asset_cfg1": SceneEntityCfg("cube"),
+            "asset_cfg2": SceneEntityCfg("target"),
+        },
     )
 
 
