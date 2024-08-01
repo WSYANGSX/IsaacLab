@@ -119,7 +119,7 @@ class ActionsCfg:
     """Action specifications for the MDP."""
 
     arm_action: ActionTerm = mdp.ArmActionCfg(
-        policy_path="/home/yangxf/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/"
+        policy_path="/home/yxfniu/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/"
     )
     gripper_action: ActionTerm = mdp.GripperActionCfg()
 

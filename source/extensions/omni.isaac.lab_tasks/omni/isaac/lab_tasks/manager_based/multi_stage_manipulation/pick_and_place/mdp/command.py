@@ -132,13 +132,12 @@ class SubgoalCommand(CommandTerm):
 
         env_subgoal = self.subgoals[env_ids]
         env_counter = self.subgoals_counter[env_ids]
-        print(env_counter)
+
         for i in range(len(env_counter)):
             index = env_counter[i]
             subgoals[i][:] = env_subgoal[i][index]
 
         self.pose_command_l[env_ids] = subgoals
-        print(self.pose_command_l)
 
         # offset the position command by the env origins
         self.pose_command_w[:] = self.pose_command_l
