@@ -1,3 +1,4 @@
+import torch
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.managers import SceneEntityCfg
@@ -19,6 +20,10 @@ import omni.isaac.lab_tasks.manager_based.multi_stage_manipulation.pick_and_plac
 # pre-defined franka pandas configs
 ###
 from omni.isaac.lab_assets.franka import FRANKA_PANDA_HIGH_PD_CFG
+
+
+# tensor打印显示全部，方便调试
+torch.set_printoptions(profile="full")
 
 
 ###
@@ -65,7 +70,7 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block_instanceable.usd",
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.275, 0.0, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
+            pos=(0.275, 0.15, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
         ),
     )
 
@@ -79,16 +84,22 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(-0.275, 0.0, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
+            pos=(-0.275, -0.15, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
         ),
     )
+
+
+# load subgoals
+subgoals_list = [
+    (0.275, 0.0, 0.05, 0.70711, 0.0, 0.0, 0.70711),
+    (0.275, 0.0, 0.0, 0.70711, 0.0, 0.0, 0.70711),
+    (-0.275, 0.0, 0.0, 0.70711, 0.0, 0.0, 0.70711),
+]
 
 
 ###
 # MDP settings
 ###
-
-subgoals_list = []
 
 
 @configclass

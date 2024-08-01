@@ -35,8 +35,8 @@ def task_complete(
     # calculate distance
     dist = torch.norm(cube_pos_l - target_pos_l, p=2, dim=-1)
     rot_dist = rotation_distance(cube_quat_l, target_quat_l)
-    dist_complete = dist <= pos_threshold
-    rot_complete = rot_dist <= rot_threshold
-    task_complete = dist_complete.to(torch.int) & rot_complete.to(torch.int)
+    dist_succ = dist <= pos_threshold
+    rot_succ = rot_dist <= rot_threshold
+    task_complete = torch.logical_and(dist_succ, rot_succ)
 
-    return task_complete
+    return task_complete                    # termination的返回值应该是bool类型

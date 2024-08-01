@@ -37,18 +37,23 @@ class SubgoalCommand(CommandTerm):
         self.robot: Articulation = env.scene[cfg.asset_name]
 
         # obtain subgoals list
-        self.subgoals = cfg.subgoals_list
-        self.subgoals = torch.tensor(
-            self.subgoals, dtype=torch.float32, device=self.device
-        ).repeat(self.num_envs, 1)
+        self.subgoals = torch.unsqueeze(
+            torch.tensor(cfg.subgoals_list, dtype=torch.float32, device=self.device),
+            dim=0,
+        )
+        self.subgoals = self.subgoals.repeat(self.num_envs, 1, 1)
 
         self.subgoals_nums = self.subgoals.size()[-2]
-        self.subgoals_counter = torch.zeros(self.num_envs, device=self.device)
+
+        self.subgoals_counter = torch.zeros(
+            self.num_envs, dtype=torch.int, device=self.device
+        )
 
         # crete buffers to store the command
         # -- commands: (pos, quat)
         self.pose_command_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_l = torch.zeros_like(self.pose_command_w)
+
         # -- metrics
         self.metrics["error_pos"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_quat"] = torch.zeros(self.num_envs, device=self.device)
@@ -75,14 +80,15 @@ class SubgoalCommand(CommandTerm):
     def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
         """reset subgoals"""
         if env_ids is None:
-            env_ids = slice(None)   # type: ignore
+            env_ids = slice(None)  # type: ignore
+
         # set the command counter to zero
         self.command_counter[env_ids] = 0
-        self.subgoals_counter[env_ids] = (
-            0  # self._resample()应当以subgoals_counter为依据进行采样
-        )
+        self.subgoals_counter[env_ids] = 0
+
         # resample the command
         self._resample(env_ids)  # type: ignore
+
         # add logging metrics
         extras = {}
         for metric_name, metric_value in self.metrics.items():
@@ -98,12 +104,13 @@ class SubgoalCommand(CommandTerm):
         ee_pose = env_obs[:, 7:14]  # type: ignore
 
         self.metrics["error_pos"] = torch.norm(
-            self.pose_command_l[:, :3] - ee_pose[:, :3], dim=1
+            self.pose_command_l[:, :3] - ee_pose[:, :3], p=2, dim=-1
         )
         self.metrics["error_quat"] = rotation_distance(
-            ee_pose[:3:7], self.pose_command_l[:, 3:7]
+            ee_pose[:, 3:7], self.pose_command_l[:, 3:7]
         )
 
+    def _resample_command(self, env_ids: Sequence[int]):
         # determine whether the subgoal has changed
         pos_succ = torch.where(
             self.metrics["error_pos"] <= 0.05,
@@ -115,19 +122,24 @@ class SubgoalCommand(CommandTerm):
             torch.ones_like(self.metrics["error_quat"], device=self.device),
             torch.zeros_like(self.metrics["error_quat"], device=self.device),
         )
-        succ = pos_succ & rot_succ
-        self.subgoals_counter = torch.where(
-            succ == 1,
-            self.subgoals_counter + torch.ones_like(self.subgoals_counter),
-            self.subgoals_counter,
-        )
+        succ = torch.logical_and(pos_succ, rot_succ)
 
-    def _resample_command(self, env_ids: Sequence[int]):
+        indices = torch.where(succ == 1)
+        self.subgoals_counter[indices] += 1
+
         # obtain env origins for the environments
-        for i in range(len(env_ids)):
-            self.pose_command_l[env_ids[i]] = self.subgoals[env_ids[i]][
-                self.subgoals_counter[env_ids[i]]
-            ]
+        subgoals = torch.zeros(len(env_ids), 7, device=self.device)
+
+        env_subgoal = self.subgoals[env_ids]
+        env_counter = self.subgoals_counter[env_ids]
+        print(env_counter)
+        for i in range(len(env_counter)):
+            index = env_counter[i]
+            subgoals[i][:] = env_subgoal[i][index]
+
+        self.pose_command_l[env_ids] = subgoals
+        print(self.pose_command_l)
+
         # offset the position command by the env origins
         self.pose_command_w[:] = self.pose_command_l
         self.pose_command_w[:, :3] += (

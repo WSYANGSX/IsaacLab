@@ -67,7 +67,7 @@ class ArmAction(ActionTerm):
         self.robot_entity_cfg = SceneEntityCfg(
             "robot", joint_names=["panda_joint.*"], body_names=["panda_hand"]
         )
-        self.robot_entity_cfg.resolve(env.scene)    # 必须先resolve()然后再用
+        self.robot_entity_cfg.resolve(env.scene)  # 必须先resolve()然后再用
         self.ee_jacobi_idx = self.robot_entity_cfg.body_ids[0] - 1  # type: ignore
 
         # load policy
@@ -81,6 +81,9 @@ class ArmAction(ActionTerm):
             self.num_envs, self.action_dim, device=self.device
         )
 
+        self._close_command = torch.zeros_like(self._raw_actions, device=self.device)
+        self._open_command = torch.ones_like(self._close_command)
+
         # low_level observations
         @configclass
         class LowLevelObsCfg:
@@ -92,7 +95,9 @@ class ArmAction(ActionTerm):
 
                 grip_point_pose_l = ObsTerm(
                     func=get_grip_point_local_pose,
-                    params={"asset_cfg": SceneEntityCfg("robot", body_names=["panda_hand"])},
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=["panda_hand"])
+                    },
                 )
                 goal_pose_l = ObsTerm(func=get_subgoal_local_pose)
                 dist = ObsTerm(
@@ -159,7 +164,22 @@ class ArmAction(ActionTerm):
         """将原始动作与预训练动作进行掩码操作，输出操作动作"""
         self._raw_actions[:] = actions
 
+        # compute the binary mask
+        if actions.dtype == torch.bool:
+            # true: close, false: open
+            binary_mask = actions == 0
+        else:
+            # true: close, false: open
+            binary_mask = actions < 0
+        # compute the command
+        self._processed_actions = torch.where(
+            binary_mask, self._close_command, self._open_command
+        )
+
+    def apply_actions(self):
+        # access low level action
         low_level_obs = self._low_level_obs_manager.compute_group("ll_policy")
+
         self.tar_ee_pos, self.tar_ee_rot = self._resolve_target_ee_pose(low_level_obs)  # type: ignore
         tar_hand_pos, tar_hand_rot = self._resolve_target_hand_pose(
             self.tar_ee_pos, self.tar_ee_rot
@@ -176,13 +196,15 @@ class ArmAction(ActionTerm):
         curr_hand_rot = self.robot.data.body_quat_w[
             :, self.robot_entity_cfg.body_ids[0]  # type: ignore
         ]
+
         # compute the joint commands
-        self.diff_ik_controller.set_command(torch.cat((tar_hand_pos, tar_hand_rot)))
+        self.diff_ik_controller.set_command(
+            torch.cat((tar_hand_pos, tar_hand_rot), dim=-1)
+        )
         self.joint_pos_des = self.diff_ik_controller.compute(
             curr_hand_pos, curr_hand_rot, jacobian, joint_pos
         )
 
-    def apply_actions(self):
         if self._counter % self.cfg.low_level_decimation == 0:
             self.robot.set_joint_position_target(
                 self.joint_pos_des, self.robot_entity_cfg.joint_ids
@@ -203,7 +225,7 @@ class ArmAction(ActionTerm):
                 # next goal
                 marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
                 marker_cfg.prim_path = "/Visuals/Actions/next_ee_goal"
-                marker_cfg.markers["frame"].scale = (0.5, 0.5, 0.5)
+                marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
                 self.next_ee_goal_visualizer = VisualizationMarkers(marker_cfg)
             # set their visibility to true
             self.next_ee_goal_visualizer.set_visibility(True)
@@ -248,6 +270,9 @@ class ArmAction(ActionTerm):
             dim=-1,
         )
 
+        if not self.policy.has_batch_dimension:
+            self.policy.get_batch_size(low_level_obs, 1)
+
         ll_policy_action = (
             self.policy.get_action(low_level_obs).clone().clamp(-1.0, 1.0)
         )
@@ -258,11 +283,11 @@ class ArmAction(ActionTerm):
         )
 
         # ll_policy_action mask
-        self._processed_actions = ll_policy_action * self._raw_actions
+        _actions = ll_policy_action * self._processed_actions
 
-        thetas1 = self._processed_actions[:, 0]
-        thetas2 = self._processed_actions[:, 1]
-        dist = torch.abs(self._processed_actions[:, 2])
+        thetas1 = _actions[:, 0]
+        thetas2 = _actions[:, 1]
+        dist = torch.abs(_actions[:, 2])
 
         _x = dist * torch.cos(thetas2) * torch.cos(thetas1)
         _y = dist * torch.cos(thetas2) * torch.sin(thetas1)
@@ -270,7 +295,7 @@ class ArmAction(ActionTerm):
 
         tar_ee_pos = curr_ee_pos + torch.stack((_x, _y, _z), dim=-1)
 
-        angle = self._processed_actions[:, 3]
+        angle = _actions[:, 3]
         rot = quat_from_angle_axis(angle, rot_axis)
         tar_ee_rot = quat_mul(rot, curr_ee_rot)
 
@@ -282,7 +307,7 @@ class ArmAction(ActionTerm):
         tar_ee_rot: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Converts the next gripper frame pos and rot to hand frame pos and rot."""
-        gripper_frame_in_hand_frame = (0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0)
+        gripper_frame_in_hand_frame = (0.0, 0.0, 0.07, 1.0, 0.0, 0.0, 0.0)
         hand_pos_to_gripper = -torch.tensor(
             gripper_frame_in_hand_frame[0:3], device=self.device
         ).repeat(self._env.num_envs, 1)
@@ -339,15 +364,21 @@ class GripperAction(ActionTerm):
         self.robot_entity_cfg = SceneEntityCfg(
             "robot", joint_names=["panda_finger_joint.*"]
         )
+        self.robot_entity_cfg.resolve(
+            env.scene
+        )  # 必须先resolve()然后再用, actionterm中自动解析函数
 
         # raw action存放buffer
         self._raw_actions = torch.zeros(
             self.num_envs, self.action_dim, device=self.device
         )
 
+        self._open_command = torch.ones_like(self._raw_actions, device=self.device)
+        self._close_command = torch.zeros_like(self._open_command)
+
         self.open_pos = torch.full_like(
-            self._raw_actions, fill_value=0.05, device=self.device
-        )
+            self._open_command, fill_value=0.05, device=self.device
+        ).repeat(1, 2)
 
         self._counter = 0
 
@@ -374,10 +405,22 @@ class GripperAction(ActionTerm):
     def process_actions(self, actions: torch.Tensor):
         """将原始动作与预训练动作进行掩码操作，输出操作动作"""
         self._raw_actions[:] = actions
-        self.joint_target_pos = self.open_pos * self._raw_actions
-        self.joint_target_pos.repeat(1, 2)
+
+        # compute the binary mask
+        if actions.dtype == torch.bool:
+            # true: close, false: open
+            binary_mask = actions == 0
+        else:
+            # true: close, false: open
+            binary_mask = actions < 0
+        # compute the command
+        self._processed_actions = torch.where(
+            binary_mask, self._close_command, self._open_command
+        )
 
     def apply_actions(self):
+        self.joint_target_pos = self.open_pos * self._processed_actions
+
         if self._counter % self.cfg.low_level_decimation == 0:
             self.robot.set_joint_position_target(
                 self.joint_target_pos, self.robot_entity_cfg.joint_ids

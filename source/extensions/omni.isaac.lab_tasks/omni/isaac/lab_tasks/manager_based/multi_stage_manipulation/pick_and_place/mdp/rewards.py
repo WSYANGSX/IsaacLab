@@ -35,7 +35,7 @@ def subgoal_reach(
 
     # compute gripper frame local pose
     gripper_frame_in_hand_frame = torch.tensor(
-        (0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0), device=env.device
+        (0.0, 0.0, 0.07, 1.0, 0.0, 0.0, 0.0), device=env.device
     ).repeat(env.scene.num_envs, 1)
 
     ee_local_pos, ee_local_quat = combine_frame_transforms(

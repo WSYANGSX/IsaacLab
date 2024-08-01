@@ -64,7 +64,7 @@ def get_grip_point_local_pose(
     panda_hand_quat_l = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]
 
     # compute gripper frame local pose
-    gripper_frame_in_hand_frame = (0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0)
+    gripper_frame_in_hand_frame = (0.0, 0.0, 0.07, 1.0, 0.0, 0.0, 0.0)
     gripper_frame_in_hand_frame = torch.tensor(
         gripper_frame_in_hand_frame, device=env.device
     ).repeat(env.scene.num_envs, 1)
