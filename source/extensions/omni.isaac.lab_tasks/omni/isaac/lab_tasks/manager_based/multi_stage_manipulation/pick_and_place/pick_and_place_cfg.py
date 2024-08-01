@@ -14,6 +14,10 @@ from omni.isaac.lab.managers import ActionTermCfg as ActionTerm
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 from omni.isaac.lab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
+
+from omni.isaac.lab_tasks.manager_based.multi_stage_manipulation.pick_and_place.utils import (
+    path,
+)
 import omni.isaac.lab_tasks.manager_based.multi_stage_manipulation.pick_and_place.mdp as mdp
 
 ###
@@ -118,9 +122,7 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    arm_action: ActionTerm = mdp.ArmActionCfg(
-        policy_path="/home/yxfniu/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/"
-    )
+    arm_action: ActionTerm = mdp.ArmActionCfg(policy_path=path.get_policy_path())  # type:ignore
     gripper_action: ActionTerm = mdp.GripperActionCfg()
 
 
