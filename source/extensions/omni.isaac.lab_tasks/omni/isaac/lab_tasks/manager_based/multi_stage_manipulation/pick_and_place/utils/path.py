@@ -8,32 +8,36 @@ def get_home_path() -> str | None:
         print("home path: ", home_path)
         return home_path
     else:
-        print("HOME environment variable is not set.")
+        raise FileNotFoundError("HOME environment variable is not set.")
 
 
 def get_isaaclab_path() -> str | None:
     # load home path
-    home_path = os.getenv("HOME")
+    home_path = get_home_path()
     if home_path:
         isaaclab_path = os.path.join(home_path, "Ominverse_RL_platform", "IsaacLab")
-        return isaaclab_path
+        if os.path.isdir(isaaclab_path):
+            return isaaclab_path
+        else:
+            raise FileNotFoundError(f"Dir:{isaaclab_path} is not exists.")
     else:
         print("HOME environment variable is not set.")
 
 
-def get_policy_path() -> str | None:
+def get_policy_dir_path(policy_dir_name: str) -> str | None:
     # load home path
-    home_path = os.getenv("HOME")
-    if home_path:
-        isaaclab_path = os.path.join(
-            home_path,
-            "Ominverse_RL_platform",
-            "IsaacLab",
+    isaaclab_path = get_isaaclab_path()
+    if isaaclab_path:
+        policy_dir_path = os.path.join(
+            isaaclab_path,
             "logs",
             "rl_games",
             "prtpr",
-            "3",
+            policy_dir_name,
         )
-        return isaaclab_path
+        if os.path.isdir(policy_dir_path):
+            return policy_dir_path
+        else:
+            raise FileNotFoundError(f"Policy file:{policy_dir_path} is not exists.")
     else:
         print("HOME environment variable is not set.")

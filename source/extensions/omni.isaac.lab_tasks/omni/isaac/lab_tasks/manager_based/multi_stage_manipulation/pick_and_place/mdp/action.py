@@ -15,7 +15,6 @@ from omni.isaac.lab.managers.observation_manager import (
 from omni.isaac.lab.managers.observation_manager import ObservationTermCfg as ObsTerm
 from omni.isaac.lab.markers import FRAME_MARKER_CFG, VisualizationMarkers
 from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.assets import check_file_path
 from omni.isaac.lab.utils.math import (
     quat_from_angle_axis,
     quat_mul,
@@ -71,8 +70,7 @@ class ArmAction(ActionTerm):
         self.ee_jacobi_idx = self.robot_entity_cfg.body_ids[0] - 1  # type: ignore
 
         # load policy
-        if not check_file_path(cfg.policy_path):
-            raise FileNotFoundError(f"Policy file '{cfg.policy_path}' does not exist.")
+        assert cfg.policy_path is not None
         self.policy = PrtprModel(cfg.policy_path)
         self.policy.reset()
 
@@ -338,7 +336,7 @@ class ArmActionCfg(ActionTermCfg):
     """ Class of the action term."""
     asset_name: str = "robot"
     """Name of the asset in the environment for which the commands are generated."""
-    policy_path: str = MISSING  # type: ignore
+    policy_path: str | None = None  # type: ignore
     """Path to the low level policy (.pt files)."""
     low_level_decimation: int = 4
     """Decimation factor for the low level action term."""

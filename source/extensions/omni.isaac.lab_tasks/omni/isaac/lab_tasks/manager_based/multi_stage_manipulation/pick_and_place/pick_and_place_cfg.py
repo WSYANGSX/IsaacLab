@@ -122,7 +122,7 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    arm_action: ActionTerm = mdp.ArmActionCfg(policy_path=path.get_policy_path())  # type:ignore
+    arm_action: ActionTerm = mdp.ArmActionCfg(policy_path=path.get_policy_dir_path("3"))
     gripper_action: ActionTerm = mdp.GripperActionCfg()
 
 
