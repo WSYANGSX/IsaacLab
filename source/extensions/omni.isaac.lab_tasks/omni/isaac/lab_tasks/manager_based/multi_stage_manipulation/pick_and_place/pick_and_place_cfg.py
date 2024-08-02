@@ -1,4 +1,3 @@
-import torch
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.managers import SceneEntityCfg
@@ -24,10 +23,6 @@ import omni.isaac.lab_tasks.manager_based.multi_stage_manipulation.pick_and_plac
 # pre-defined franka pandas configs
 ###
 from omni.isaac.lab_assets.franka import FRANKA_PANDA_HIGH_PD_CFG
-
-
-# tensor打印显示全部，方便调试
-torch.set_printoptions(profile="full")
 
 
 ###
