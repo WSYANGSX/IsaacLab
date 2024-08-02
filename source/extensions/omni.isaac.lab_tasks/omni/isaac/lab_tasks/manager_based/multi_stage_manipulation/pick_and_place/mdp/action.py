@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import torch
 from typing import TYPE_CHECKING
-from dataclasses import MISSING
 
 from omni.isaac.lab.assets import Articulation
 from omni.isaac.lab.envs.mdp import SceneEntityCfg
