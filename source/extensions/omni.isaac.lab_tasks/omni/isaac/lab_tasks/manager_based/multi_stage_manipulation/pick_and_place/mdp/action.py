@@ -222,7 +222,7 @@ class ArmAction(ActionTerm):
                 # next goal
                 marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
                 marker_cfg.prim_path = "/Visuals/Actions/next_ee_goal"
-                marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+                marker_cfg.markers["frame"].scale = (0.08, 0.08, 0.08)
                 self.next_ee_goal_visualizer = VisualizationMarkers(marker_cfg)
             # set their visibility to true
             self.next_ee_goal_visualizer.set_visibility(True)

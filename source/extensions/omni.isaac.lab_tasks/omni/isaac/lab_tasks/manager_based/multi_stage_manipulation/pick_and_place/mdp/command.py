@@ -154,7 +154,7 @@ class SubgoalCommand(CommandTerm):
         if debug_vis:
             if not hasattr(self, "subgoal_visualizer"):
                 marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
-                marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+                marker_cfg.markers["frame"].scale = (0.08, 0.08, 0.08)
                 marker_cfg.prim_path = "/Visuals/Command/subgoal_goal"
                 self.subgoal_visualizer = VisualizationMarkers(marker_cfg)
             # set their visibility to true

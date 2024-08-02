@@ -69,7 +69,7 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block_instanceable.usd",
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.275, 0.15, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
+            pos=(0.275, 0.15, 0.05), rot=(0.70711, 0.0, 0.0, 0.70711)
         ),
     )
 
@@ -83,16 +83,16 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(-0.275, -0.15, 0.0), rot=(0.70711, 0.0, 0.0, 0.70711)
+            pos=(0.275, -0.15, 0.05), rot=(0.70711, 0.0, 0.0, 0.70711)
         ),
     )
 
 
 # load subgoals
 subgoals_list = [
-    (0.275, 0.0, 0.05, 0.70711, 0.0, 0.0, 0.70711),
-    (0.275, 0.0, 0.0, 0.70711, 0.0, 0.0, 0.70711),
-    (-0.275, 0.0, 0.0, 0.70711, 0.0, 0.0, 0.70711),
+    (0.275, 0.15, 0.08, -0.70711, 0.0, 0.0, 0.70711),
+    (0.275, 0.15, 0.25, -0.70711, 0.0, 0.0, 0.70711),
+    (-0.275, 0.0, 0.0, -0.70711, 0.0, 0.0, 0.70711),
 ]
 
 
