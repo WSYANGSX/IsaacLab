@@ -11,7 +11,6 @@ from omni.isaac.lab.managers import TerminationTermCfg as DoneTerm
 from omni.isaac.lab.managers import RewardTermCfg as RewardTerm
 from omni.isaac.lab.managers import ActionTermCfg as ActionTerm
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
-from omni.isaac.lab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 
 from omni.isaac.lab_tasks.manager_based.multi_stage_manipulation.pick_and_place.utils import (
@@ -69,7 +68,7 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block_instanceable.usd",
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.275, 0.15, 0.05), rot=(0.70711, 0.0, 0.0, 0.70711)
+            pos=(0.275, 0.15, 0.05), rot=(1, 0.0, 0.0, 0.0)
         ),
     )
 
@@ -83,18 +82,17 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.275, -0.15, 0.05), rot=(0.70711, 0.0, 0.0, 0.70711)
+            pos=(0.275, -0.15, 0.05), rot=(1, 0.0, 0.0, 0.0)
         ),
     )
 
 
-# load subgoals
-subgoals_list = [
-    (0.275, 0.15, 0.08, -0.70711, 0.0, 0.0, 0.70711),
+# load subgoals list
+subgoal_list = [
     (0.275, 0.15, 0.25, -0.70711, 0.0, 0.0, 0.70711),
+    (0.275, 0.15, 0.08, -0.70711, 0.0, 0.0, 0.70711),
     (-0.275, 0.0, 0.0, -0.70711, 0.0, 0.0, 0.70711),
 ]
-
 
 ###
 # MDP settings
@@ -109,7 +107,7 @@ class CommandsCfg:
         resampling_time_range=(1.0, 1.0),
         debug_vis=True,
         asset_name="robot",
-        subgoals_list=subgoals_list,
+        subgoal_list=subgoal_list,
     )
 
 
@@ -135,13 +133,11 @@ class ObservationsCfg:
             params={
                 "asset_cfg": SceneEntityCfg("cube", body_names=["object"])
             },  # 必须传入参数，因为ObsTerm的params参数的默认值为dict()
-            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         cube_rot = ObsTerm(
             func=mdp.get_asset_local_rot,
             params={"asset_cfg": SceneEntityCfg("cube", body_names=["object"])},
-            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         ee_pose = ObsTerm(
@@ -149,7 +145,6 @@ class ObservationsCfg:
             params={
                 "asset_cfg": SceneEntityCfg(name="robot", body_names=["panda_hand"])
             },
-            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         subgoal_pose = ObsTerm(
@@ -159,19 +154,16 @@ class ObservationsCfg:
         target_pose = ObsTerm(
             func=mdp.get_asset_local_pos,
             params={"asset_cfg": SceneEntityCfg("target")},
-            noise=Unoise(n_min=-0.001, n_max=0.001),
         )
 
         # arm_joint_pos = ObsTerm(
         #     func=mdp.get_arm_position,
         #     params={"asset_cfg": SceneEntityCfg("robot")},
-        #     noise=Unoise(n_min=-0.01, n_max=0.01),
         # )
 
         # arm_joint_vel = ObsTerm(
         #     func=mdp.get_arm_velocity,
         #     params={"asset_cfg": SceneEntityCfg("robot")},
-        #     noise=Unoise(n_min=-0.01, n_max=0.01),
         # )
 
         gripper_joint_pos = ObsTerm(
@@ -179,7 +171,6 @@ class ObservationsCfg:
             params={
                 "asset_cfg": SceneEntityCfg("robot", joint_names=["panda_finger_.*"])
             },
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
         gripper_joint_vel = ObsTerm(
@@ -187,7 +178,6 @@ class ObservationsCfg:
             params={
                 "asset_cfg": SceneEntityCfg("robot", joint_names=["panda_finger_.*"])
             },
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
         actions = ObsTerm(func=mdp.last_action)
@@ -250,6 +240,12 @@ class EventCfg:
             "position_range": (0.5, 1.5),
             "velocity_range": (0.0, 0.0),
         },
+    )
+
+    reset_cube_pose = EventTerm(
+        func=mdp.reset_cube_pose,
+        mode="reset",
+        params={"asset_cfg": SceneEntityCfg("cube")},
     )
 
 

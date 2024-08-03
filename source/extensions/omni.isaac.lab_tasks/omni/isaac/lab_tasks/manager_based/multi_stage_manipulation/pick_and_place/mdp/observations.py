@@ -59,9 +59,9 @@ def get_grip_point_local_pose(
 
     # obtain panda hand pose
     panda_hand_pos_l = (
-        asset.data.body_pos_w[:, asset_cfg.body_ids[0]] - env.scene.env_origins
+        asset.data.body_pos_w[:, asset_cfg.body_ids[0]] - env.scene.env_origins  # type: ignore
     )
-    panda_hand_quat_l = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]
+    panda_hand_quat_l = asset.data.body_quat_w[:, asset_cfg.body_ids[0]]  # type: ignore
 
     # compute gripper frame local pose
     gripper_frame_in_hand_frame = (0.0, 0.0, 0.07, 1.0, 0.0, 0.0, 0.0)

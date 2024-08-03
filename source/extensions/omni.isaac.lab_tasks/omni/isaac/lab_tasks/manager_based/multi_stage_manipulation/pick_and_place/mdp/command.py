@@ -38,7 +38,7 @@ class SubgoalCommand(CommandTerm):
 
         # obtain subgoals list
         self.subgoals = torch.unsqueeze(
-            torch.tensor(cfg.subgoals_list, dtype=torch.float32, device=self.device),
+            torch.tensor(cfg.subgoal_list, dtype=torch.float32, device=self.device),
             dim=0,
         )
         self.subgoals = self.subgoals.repeat(self.num_envs, 1, 1)
@@ -180,5 +180,5 @@ class SubgoalCommandCfg(CommandTermCfg):
     asset_name: str = MISSING  # type: ignore
     """Name of the asset in the environment for which the commands are generated."""
 
-    subgoals_list: list = MISSING  # type: ignore
+    subgoal_list: list = MISSING  # type: ignore
     """List of subgoals in the environment for the robot to achieve sequentially."""

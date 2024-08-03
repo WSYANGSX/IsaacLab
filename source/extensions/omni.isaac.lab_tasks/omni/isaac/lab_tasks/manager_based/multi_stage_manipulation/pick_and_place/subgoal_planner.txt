@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+import torch
+
+
+class SubgoalPlanner:
+    def __init__(
+        self,
+        init_subgoals: torch.Tensor,
+        init_cube_pose: torch.Tensor,
+        init_target_pose: torch.Tensor,
+    ) -> None:
+        self._init_subgoals = init_subgoals
+        self._init_cube_pose = init_cube_pose
+        self._init_target_pose = init_target_pose
+
+        self.generalization_param = torch.norm(
+            self._init_cube_pose[:3] - self._init_target_pose[:3], p=2, dim=-1
+        )
+
+    def find_cube_index(self) -> int:
+        size = self._init_subgoals.size()
+        cube_pose = self._init_cube_pose.repeat(size)
+        dist = torch.norm(self._init_subgoals[:, :3] - cube_pose[:, :3], p=2, dim=-1)
+        index = torch.argmin(dist)
+        
+        
+    def find_taregt_index(self) -> int: ...
+
+    def compute(self, subgoals: torch.Tensor) -> torch.Tensor: ...
