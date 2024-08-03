@@ -43,11 +43,12 @@ class SubgoalCommand(CommandTerm):
         )
         self.subgoals = self.subgoals.repeat(self.num_envs, 1, 1)
 
-        self.subgoals_nums = self.subgoals.size()[-2]
+        self.subgoals_total_nums = self.subgoals.size()[-2]
 
         self.subgoals_counter = torch.zeros(
             self.num_envs, dtype=torch.int, device=self.device
         )
+        self.current_subgoal = torch.zeros(env.num_envs, 7, device=self.device)
 
         # crete buffers to store the command
         # -- commands: (pos, quat)
@@ -111,14 +112,17 @@ class SubgoalCommand(CommandTerm):
         )
 
     def _resample_command(self, env_ids: Sequence[int]):
-        # determine whether the subgoal has changed
+        pass
+
+    def _update_command(self):
+        """Re-target the position command to the current root state."""
         pos_succ = torch.where(
             self.metrics["error_pos"] <= 0.05,
             torch.ones_like(self.metrics["error_pos"], device=self.device),
             torch.zeros_like(self.metrics["error_pos"], device=self.device),
         )
         rot_succ = torch.where(
-            self.metrics["error_pos"] <= 0.2,
+            self.metrics["error_quat"] <= 0.2,
             torch.ones_like(self.metrics["error_quat"], device=self.device),
             torch.zeros_like(self.metrics["error_quat"], device=self.device),
         )
@@ -127,27 +131,16 @@ class SubgoalCommand(CommandTerm):
         indices = torch.where(succ == 1)
         self.subgoals_counter[indices] += 1
 
-        # obtain env origins for the environments
-        subgoals = torch.zeros(len(env_ids), 7, device=self.device)
+        for i in range(len(self.current_subgoal)):
+            self.current_subgoal[i][:] = self.subgoals[i][self.subgoals_counter[i]]
 
-        env_subgoal = self.subgoals[env_ids]
-        env_counter = self.subgoals_counter[env_ids]
-
-        for i in range(len(env_counter)):
-            index = env_counter[i]
-            subgoals[i][:] = env_subgoal[i][index]
-
-        self.pose_command_l[env_ids] = subgoals
+        self.pose_command_l[:] = self.current_subgoal
 
         # offset the position command by the env origins
         self.pose_command_w[:] = self.pose_command_l
         self.pose_command_w[:, :3] += (
             self._env.scene.env_origins
         )  # for visualization makers
-
-    def _update_command(self):
-        """Re-target the position command to the current root state."""
-        pass
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         # create markers if necessary for the first tome

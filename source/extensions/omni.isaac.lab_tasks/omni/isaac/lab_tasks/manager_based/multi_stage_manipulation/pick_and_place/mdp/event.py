@@ -17,7 +17,7 @@ def reset_cube_pose(
     """Reset cube pose by offset."""
     asset: RigidObject = env.scene[asset_cfg.name]
 
-    default_pos = asset.data.default_root_state[env_ids][:, :3]
+    default_pos = asset.data.default_root_state[env_ids][:, :3] + env.scene.env_origins
 
     default_rot = asset.data.default_root_state[env_ids][:, 3:7]
 

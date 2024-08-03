@@ -1,3 +1,5 @@
+import torch
+
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.managers import SceneEntityCfg
@@ -22,6 +24,10 @@ import omni.isaac.lab_tasks.manager_based.multi_stage_manipulation.pick_and_plac
 # pre-defined franka pandas configs
 ###
 from omni.isaac.lab_assets.franka import FRANKA_PANDA_HIGH_PD_CFG
+
+
+# set torch print style to show full tensor
+torch.set_printoptions(profile="full")
 
 
 ###
@@ -89,9 +95,9 @@ class PickAndPlaceCfg(InteractiveSceneCfg):
 
 # load subgoals list
 subgoal_list = [
-    (0.275, 0.15, 0.25, -0.70711, 0.0, 0.0, 0.70711),
-    (0.275, 0.15, 0.08, -0.70711, 0.0, 0.0, 0.70711),
-    (-0.275, 0.0, 0.0, -0.70711, 0.0, 0.0, 0.70711),
+    (0.275, 0.15, 0.25, 0.0, 1.0, 0.0, 0.0),
+    (0.275, 0.15, 0.05, 0.0, 1.0, 0.0, 0.0),
+    (0.275, -0.15, 0.05, 0.0, 1.0, 0.0, 0.0),
 ]
 
 ###
@@ -197,9 +203,6 @@ class RewardsCfg:
     subgoal_reach = RewardTerm(
         func=mdp.subgoal_reach,
         weight=1,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="panda_hand"),
-        },
     )
 
     # task complete

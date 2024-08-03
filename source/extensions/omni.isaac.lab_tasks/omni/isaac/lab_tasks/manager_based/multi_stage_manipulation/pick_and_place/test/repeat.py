@@ -1,7 +1,5 @@
 import torch
 
-a = torch.tensor([1, 2, 3, 4, 5, 6])
-for i in range(len(a)):
-    a[i] = 1
-
-print(a)
+a = torch.tensor([True, False, True])
+b = torch.full_like(a, fill_value=50, dtype=torch.float32)
+print(b)
