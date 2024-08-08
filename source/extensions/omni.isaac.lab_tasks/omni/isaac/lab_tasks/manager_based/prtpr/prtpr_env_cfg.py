@@ -30,7 +30,7 @@ marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
 
 
 @configclass
-class PrSceneCfg(InteractiveSceneCfg):
+class PrtprSceneCfg(InteractiveSceneCfg):
     """Configuration for the scene with a robotic arm."""
 
     # world
@@ -116,10 +116,16 @@ class ObservationsCfg:
         joint_vel = ObsTerm(
             func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
         )
+        ee_pose = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         pose_command = ObsTerm(
             func=mdp.generated_commands, params={"command_name": "ee_pose"}
         )
-        actions = ObsTerm(func=mdp.last_action)
+        dist_error = ObsTerm(
+            func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
+        )
+        rot_error = ObsTerm(
+            func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
+        )
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -215,7 +221,7 @@ class ReachEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the reach end-effector pose tracking environment."""
 
     # Scene settings
-    scene: ReachSceneCfg = ReachSceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: PrtprSceneCfg = PrtprSceneCfg(num_envs=4096, env_spacing=2.5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
