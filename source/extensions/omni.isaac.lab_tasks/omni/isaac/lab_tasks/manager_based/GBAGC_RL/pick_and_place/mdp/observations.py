@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from omni.isaac.lab.assets import RigidObject, Articulation
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.sensors import FrameTransformer
-from omni.isaac.lab.utils.math import quat_mul, quat_conjugate
+from local_projects.utils.math import rotation_distance
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
@@ -57,8 +57,8 @@ def get_ee_local_pose(
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     # obtain panda hand pose
     ee_pos_l, ee_quat_l = (
-        ee_frame.data.target_pos_source[:, 0],
-        ee_frame.data.target_quat_source[:, 0],
+        ee_frame.data.target_pos_source[..., 0, :],
+        ee_frame.data.target_quat_source[..., 0, :],
     )
 
     return torch.cat((ee_pos_l, ee_quat_l), dim=-1)
@@ -71,7 +71,7 @@ def get_ee_local_pos(
     # extract the asset (to enable type hinting)
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     # obtain panda hand pose
-    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
+    ee_pos_l = ee_frame.data.target_pos_source[..., 0, :]
 
     return ee_pos_l
 
@@ -83,7 +83,7 @@ def get_ee_local_quat(
     # extract the asset (to enable type hinting)
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     # obtain panda hand pose
-    ee_quat_l = ee_frame.data.target_quat_source[:, 0]
+    ee_quat_l = ee_frame.data.target_quat_source[..., 0, :]
 
     return ee_quat_l
 
@@ -97,7 +97,7 @@ def get_ee_cube_dist(
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     cube: RigidObject = env.scene[cube_cfg.name]
     # obtain ee/cube pose
-    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
+    ee_pos_l = ee_frame.data.target_pos_source[..., 0, :]
     cube_pos_l = cube.data.body_pos_w - env.scene.env_origins
 
     return torch.norm(ee_pos_l - cube_pos_l, p=2, dim=-1, keepdim=True)
@@ -111,7 +111,7 @@ def get_ee_cube_rot_dist(
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     cube: RigidObject = env.scene[cube_cfg.name]
     # obtain ee/cube pose
-    ee_rot_l = ee_frame.data.target_quat_source[:, 0]
+    ee_rot_l = ee_frame.data.target_quat_source[..., 0, :]
     cube_pos_l = cube.data.body_quat_w
 
     return rotation_distance(cube_pos_l, ee_rot_l).unsqueeze(0).view(-1, 1)
@@ -124,7 +124,7 @@ def get_ee_subgoal_dist(
 ) -> torch.Tensor:
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
+    ee_pos_l = ee_frame.data.target_pos_source[..., 0, :]
     subgoal_pos_l = env.command_manager.get_command(subgoal_cmd_name)[:, :3]
 
     return torch.norm(ee_pos_l - subgoal_pos_l, p=2, dim=-1, keepdim=True)
@@ -137,7 +137,7 @@ def get_ee_subgoal_rot_dist(
 ) -> torch.Tensor:
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    ee_rot_l = ee_frame.data.target_quat_source[:, 0]
+    ee_rot_l = ee_frame.data.target_quat_source[..., 0, :]
     subgoal_rot_l = env.command_manager.get_command(subgoal_cmd_name)[:, 3:7]
 
     return rotation_distance(ee_rot_l, subgoal_rot_l).unsqueeze(0).view(-1, 1)
@@ -190,17 +190,3 @@ def get_gripper_velocity(
     vel_data = asset.data.joint_vel[:, asset_cfg.joint_ids]
 
     return vel_data
-
-
-"""
-Helper function
-"""
-
-
-@torch.jit.script
-def rotation_distance(object_rot, target_rot):
-    # Orientation alignment for the cube in hand and goal cube
-    quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
-    return 2.0 * torch.asin(
-        torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)
-    )  # changed quat convention

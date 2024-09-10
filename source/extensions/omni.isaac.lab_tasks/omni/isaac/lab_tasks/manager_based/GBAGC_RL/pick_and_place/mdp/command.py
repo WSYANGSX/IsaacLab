@@ -50,10 +50,15 @@ class SubgoalsCommand(CommandTerm):
         self.hand_link_idx = self.robot_entity_cfg.body_ids[0]  # type: ignore
 
         # -- subgoals
-        self.subgoals = torch.tensor(cfg.subgoals_list, device=env.device).repeat(
-            env.num_envs, 1
+        self.subgoals = (
+            torch.tensor(cfg.subgoals_list, device=env.device)
+            .unsqueeze(0)
+            .repeat(env.num_envs, 1, 1)
         )
+
         self.subgoals_num = len(cfg.subgoals_list)
+
+        print("Subgoals initialized. Subgoals num: ", self.subgoals_num)
 
         # --subgoal indices
         self.subgoals_indices = torch.zeros(
@@ -91,8 +96,8 @@ class SubgoalsCommand(CommandTerm):
     def _update_metrics(self):
         # logs data
         ee_pos, ee_rot = (
-            self.ee_frame.data.target_pos_source[:, 0],
-            self.ee_frame.data.target_quat_source[:, 0],
+            self.ee_frame.data.target_pos_source[:, 0, :],
+            self.ee_frame.data.target_quat_source[:, 0, :],
         )
 
         self.metrics["error_pos"] = torch.norm(
@@ -102,33 +107,31 @@ class SubgoalsCommand(CommandTerm):
         self.metrics["error_rot"] = rotation_distance(ee_rot, self.ee_rot_command)
 
         # determine wherther to reach
-        pos_reach = torch.where(
-            self.metrics["error_pos"] <= 0.01,
-            torch.ones_like(self.metrics["error_pos"]),
-            torch.zeros_like(self.metrics["error_pos"]),
-        )
-        rot_reach = torch.where(
-            self.metrics["error_rot"] <= 0.2,
-            torch.ones_like(self.metrics["error_rot"]),
-            torch.zeros_like(self.metrics["error_rot"]),
-        )
-        reach = torch.where(
-            pos_reach + rot_reach == 2,
-            torch.ones_like(pos_reach),
-            torch.zeros_like(pos_reach),
-        )
+        pos_reach = self.metrics["error_pos"] <= 0.01
+        rot_reach = self.metrics["error_rot"] <= 0.2
+
+        reach = pos_reach & rot_reach
 
         self.subgoals_indices = torch.where(
-            reach == 1, self.subgoals_indices + 1, self.subgoals_indices
-        ).clamp(max=self.subgoals_num)
+            reach, self.subgoals_indices + 1, self.subgoals_indices
+        ).clamp(max=self.subgoals_num - 1)
 
     def _resample_command(self, env_ids: Sequence[int]):
-        self.ee_pos_command[env_ids] = self.subgoals[env_ids][
-            self.subgoals_indices[env_ids]
-        ][:, :3]
-        self.ee_rot_command[env_ids] = self.subgoals[env_ids][
-            self.subgoals_indices[env_ids]
-        ][:, 3:7]
+        for env in env_ids:
+            subgoals_for_env = self.subgoals[env]
+            index_for_env = self.subgoals_indices[env]
+
+            if index_for_env >= len(subgoals_for_env):
+                raise IndexError(
+                    f"Index {index_for_env} out of range for environment {env}"
+                )
+
+            subgoal = subgoals_for_env[index_for_env]
+            position = subgoal[:3]
+            rotation = subgoal[3:7]
+
+            self.ee_pos_command[env] = position
+            self.ee_rot_command[env] = rotation
 
     def _update_command(self):
         pass
@@ -138,7 +141,7 @@ class SubgoalsCommand(CommandTerm):
         if debug_vis:
             if not hasattr(self, "subgoal_visualizer"):
                 marker_cfg = FRAME_MARKER_CFG.copy()  # type:ignore
-                marker_cfg.markers["frame"].scale = (0.2, 0.2, 0.2)
+                marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
                 marker_cfg.prim_path = "/Visuals/Command/subgoal_pose"
                 self.subgoal_visualizer = VisualizationMarkers(marker_cfg)
             # set their visibility to true

@@ -177,7 +177,7 @@ class CommandsCfg:
     """Command terms for the MDP."""
 
     subgoals = mdp.SubgoalsCommandCfg(
-        resampling_time_range=(0.05, 0.05),
+        resampling_time_range=(0, 0),
         subgoals_list=subgoals_list,
         asset_name="robot",
         debug_vis=True,
@@ -223,9 +223,7 @@ class ObservationsCfg:
 
         ee_pose = ObsTerm(
             func=mdp.get_ee_local_pose,
-            params={
-                "ee_frame_cfg": SceneEntityCfg("ee_frame")
-            },
+            params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
@@ -321,6 +319,7 @@ class EventCfg:
         params={
             "position_range": (0.5, 1.5),
             "velocity_range": (0.0, 0.0),
+            "asset_cfg": SceneEntityCfg("robot")
         },
     )
 
@@ -342,11 +341,6 @@ class EventCfg:
 
 
 @configclass
-class CurriculumCfg:
-    pass
-
-
-@configclass
 class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for pick and place env."""
 
@@ -360,7 +354,6 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
