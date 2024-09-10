@@ -94,8 +94,8 @@ class SubgoalsCommand(CommandTerm):
     def _update_metrics(self):
         # logs data
         ee_pos, ee_rot = (
-            self.ee_frame.data.target_pos_source[:, 0, :],
-            self.ee_frame.data.target_quat_source[:, 0, :],
+            self.ee_frame.data.target_pos_source[:, 0],
+            self.ee_frame.data.target_quat_source[:, 0],
         )
 
         self.metrics["error_pos"] = torch.norm(
