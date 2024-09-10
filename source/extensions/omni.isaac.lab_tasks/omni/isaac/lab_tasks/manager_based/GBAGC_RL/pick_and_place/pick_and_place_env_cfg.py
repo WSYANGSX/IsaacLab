@@ -224,7 +224,7 @@ class ObservationsCfg:
         ee_pose = ObsTerm(
             func=mdp.get_ee_local_pose,
             params={
-                "asset_cfg": SceneEntityCfg(name="robot", body_names=["panda_hand"])
+                "ee_frame_cfg": SceneEntityCfg("ee_frame")
             },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
@@ -276,7 +276,7 @@ class RewardsCfg:
             "pos_threshold": 0.01,
             "rot_threshold": 0.2,
             "subgoal_reach_bonus": 20,
-            "asset_cfg": SceneEntityCfg("robot", body_names="panda_hand"),
+            "ee_frame_cfg": SceneEntityCfg("ee_frame"),
         },
     )
 
@@ -287,8 +287,8 @@ class RewardsCfg:
         params={
             "pos_threshold": 0.08,
             "final_goal_reach_bonus": 200,
-            "asset_cfg1": SceneEntityCfg("cube"),
-            "asset_cfg2": SceneEntityCfg("plate"),
+            "cube_cfg": SceneEntityCfg("cube"),
+            "plate_cfg": SceneEntityCfg("plate"),
         },
     )
 
@@ -304,8 +304,8 @@ class TerminationsCfg:
         mdp.task_complete,
         params={
             "pos_threshold": 0.08,
-            "asset_cfg1": SceneEntityCfg("cube"),
-            "asset_cfg2": SceneEntityCfg("plate"),
+            "cube_cfg": SceneEntityCfg("cube"),
+            "plate_cfg": SceneEntityCfg("plate"),
         },
     )
 

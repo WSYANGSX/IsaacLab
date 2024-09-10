@@ -94,8 +94,8 @@ class SubgoalsCommand(CommandTerm):
     def _update_metrics(self):
         # logs data
         ee_pos, ee_rot = (
-            self.ee_frame.data.target_pos_source,
-            self.ee_frame.data.target_quat_source,
+            self.ee_frame.data.target_pos_source[:, 0, :],
+            self.ee_frame.data.target_quat_source[:, 0, :],
         )
 
         self.metrics["error_pos"] = torch.norm(
@@ -164,7 +164,6 @@ class SubgoalsCommand(CommandTerm):
             env_ids = slice(None)
         # set the command counter to zero
         self.command_counter[env_ids] = 0
-
         self.subgoals_indices[env_ids] = 0
 
         # resample the command
