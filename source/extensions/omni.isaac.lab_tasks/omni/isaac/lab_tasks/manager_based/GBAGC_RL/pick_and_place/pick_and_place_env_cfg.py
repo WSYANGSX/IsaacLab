@@ -277,6 +277,7 @@ class RewardsCfg:
             "rot_threshold": 0.2,
             "subgoal_reach_bonus": 20,
             "ee_frame_cfg": SceneEntityCfg("ee_frame"),
+            "subgoal_cmd_name": "subgoals",
         },
     )
 

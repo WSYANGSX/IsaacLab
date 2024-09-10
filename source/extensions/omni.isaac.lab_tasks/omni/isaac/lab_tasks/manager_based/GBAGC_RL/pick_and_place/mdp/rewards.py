@@ -5,10 +5,8 @@ from typing import TYPE_CHECKING
 
 from omni.isaac.lab.assets import RigidObject
 from omni.isaac.lab.managers import SceneEntityCfg
-from .observations import (
-    get_ee_subgoal_dist,
-    get_ee_subgoal_rot_dist,
-)
+from omni.isaac.lab.sensors import FrameTransformer
+from local_projects.utils.math import rotation_distance
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
@@ -20,16 +18,19 @@ def subgoal_reach(
     rot_threshold: float,
     subgoal_reach_bonus: float,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    subgoal_cmd_name: str = "subgoal",
 ):
     """Reward when subgoal achieved."""
     # extract the asset (to enable type hinting)
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    ee_subgoal_dist = get_ee_subgoal_dist(env, ee_frame_cfg).view(
-        -1,
-    )
-    ee_subgoal_rot_dist = get_ee_subgoal_rot_dist(env, ee_frame_cfg).view(
-        -1,
-    )
+    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
+    subgoal_pos_l = env.command_manager.get_command(subgoal_cmd_name)[:, :3]
+    ee_subgoal_dist = torch.norm(ee_pos_l - subgoal_pos_l, p=2, dim=-1)
+
+    ee_rot_l = ee_frame.data.target_quat_source[:, 0]
+    subgoal_rot_l = env.command_manager.get_command(subgoal_cmd_name)[:, 3:7]
+    ee_subgoal_rot_dist = rotation_distance(ee_rot_l, subgoal_rot_l)
 
     succ = (ee_subgoal_dist <= pos_threshold) & (ee_subgoal_rot_dist <= rot_threshold)
 

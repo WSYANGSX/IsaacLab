@@ -79,9 +79,9 @@ class PreTrainedArmAction(ActionTerm):
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits[:7])
 
         # hand-ee relationship
-        self.hand_pos_in_ee = torch.tensor(
-            [0.0, 0.0, -0.09], device=env.device
-        ).repeat(self.num_envs, 1)
+        self.hand_pos_in_ee = torch.tensor([0.0, 0.0, -0.09], device=env.device).repeat(
+            self.num_envs, 1
+        )
         self.hand_rot_in_ee = torch.tensor(
             [1.0, 0.0, 0.0, 0.0], device=self.device
         ).repeat(self.num_envs, 1)
@@ -126,11 +126,17 @@ class PreTrainedArmAction(ActionTerm):
                 )
                 dist = ObsTerm(
                     func=get_ee_subgoal_dist,
-                    params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
+                    params={
+                        "ee_frame_cfg": SceneEntityCfg("ee_frame"),
+                        "subgoal_cmd_name": "subgoals",
+                    },
                 )
                 rot_dist = ObsTerm(
                     func=get_ee_subgoal_rot_dist,
-                    params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
+                    params={
+                        "ee_frame_cfg": SceneEntityCfg("ee_frame"),
+                        "subgoal_cmd_name": "subgoals",
+                    },
                 )
                 arm_dof_pos = ObsTerm(
                     func=get_arm_dof_pos,
@@ -292,7 +298,7 @@ class PreTrainedArmActionCfg(ActionTermCfg):
     """Path to the low level policy (.pt files)."""
     low_level_decimation: int = 1
     """Decimation factor for the low level action term."""
-    mode: Literal["common", "precision"] = MISSING
+    mode: Literal["common", "precision"] = MISSING  # type: ignore
 
 
 """

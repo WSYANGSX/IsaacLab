@@ -7,7 +7,6 @@ from omni.isaac.lab.assets import RigidObject, Articulation
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.sensors import FrameTransformer
 from omni.isaac.lab.utils.math import quat_mul, quat_conjugate
-from omni.isaac.lab.envs.mdp.observations import generated_commands
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
@@ -54,14 +53,12 @@ def get_ee_local_pose(
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
     """get local pose of end_effector"""
-
     # extract the asset (to enable type hinting)
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-
     # obtain panda hand pose
     ee_pos_l, ee_quat_l = (
-        ee_frame.data.target_pos_w[:, 0, :] - env.scene.env_origins,
-        ee_frame.data.target_quat_w[:, 0, :],
+        ee_frame.data.target_pos_source[:, 0],
+        ee_frame.data.target_quat_source[:, 0],
     )
 
     return torch.cat((ee_pos_l, ee_quat_l), dim=-1)
@@ -71,18 +68,24 @@ def get_ee_local_pos(
     env: ManagerBasedRLEnv,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
-    ee_local_pose = get_ee_local_pose(env, ee_frame_cfg)
+    # extract the asset (to enable type hinting)
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    # obtain panda hand pose
+    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
 
-    return ee_local_pose[:, :3]
+    return ee_pos_l
 
 
 def get_ee_local_quat(
     env: ManagerBasedRLEnv,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
-    ee_local_pose = get_ee_local_pose(env, ee_frame_cfg)
+    # extract the asset (to enable type hinting)
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    # obtain panda hand pose
+    ee_quat_l = ee_frame.data.target_quat_source[:, 0]
 
-    return ee_local_pose[:, 3:7]
+    return ee_quat_l
 
 
 def get_ee_cube_dist(
@@ -90,10 +93,14 @@ def get_ee_cube_dist(
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
     cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
 ) -> torch.Tensor:
-    ee_pos = get_ee_local_pos(env, ee_frame_cfg)
-    cube_pos = get_asset_local_pos(env, cube_cfg)
+    # extract the asset (to enable type hinting)
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    cube: RigidObject = env.scene[cube_cfg.name]
+    # obtain ee/cube pose
+    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
+    cube_pos_l = cube.data.body_pos_w - env.scene.env_origins
 
-    return torch.norm(ee_pos - cube_pos, p=2, dim=-1, keepdim=True)
+    return torch.norm(ee_pos_l - cube_pos_l, p=2, dim=-1, keepdim=True)
 
 
 def get_ee_cube_rot_dist(
@@ -101,30 +108,39 @@ def get_ee_cube_rot_dist(
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
     cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
 ) -> torch.Tensor:
-    ee_rot = get_ee_local_quat(env, ee_frame_cfg)
-    cube_rot = get_asset_local_quat(env, cube_cfg)
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    cube: RigidObject = env.scene[cube_cfg.name]
+    # obtain ee/cube pose
+    ee_rot_l = ee_frame.data.target_quat_source[:, 0]
+    cube_pos_l = cube.data.body_quat_w
 
-    return rotation_distance(ee_rot, cube_rot).unsqueeze(0).view(-1, 1)
+    return rotation_distance(cube_pos_l, ee_rot_l).unsqueeze(0).view(-1, 1)
 
 
 def get_ee_subgoal_dist(
     env: ManagerBasedRLEnv,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    subgoal_cmd_name: str = "subgoals",
 ) -> torch.Tensor:
-    ee_pos = get_ee_local_pos(env, ee_frame_cfg)
-    subgoal_pos = generated_commands(env, "subgoals")[:, :3]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    return torch.norm(ee_pos - subgoal_pos, p=2, dim=-1, keepdim=True)
+    ee_pos_l = ee_frame.data.target_pos_source[:, 0]
+    subgoal_pos_l = env.command_manager.get_command(subgoal_cmd_name)[:, :3]
+
+    return torch.norm(ee_pos_l - subgoal_pos_l, p=2, dim=-1, keepdim=True)
 
 
 def get_ee_subgoal_rot_dist(
     env: ManagerBasedRLEnv,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    subgoal_cmd_name: str = "subgoals",
 ) -> torch.Tensor:
-    ee_rot = get_ee_local_quat(env, ee_frame_cfg)
-    subgoal_rot = generated_commands(env, "subgoals")[:, 3:7]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    return rotation_distance(ee_rot, subgoal_rot).unsqueeze(0).view(-1, 1)
+    ee_rot_l = ee_frame.data.target_quat_source[:, 0]
+    subgoal_rot_l = env.command_manager.get_command(subgoal_cmd_name)[:, 3:7]
+
+    return rotation_distance(ee_rot_l, subgoal_rot_l).unsqueeze(0).view(-1, 1)
 
 
 def get_arm_dof_pos(

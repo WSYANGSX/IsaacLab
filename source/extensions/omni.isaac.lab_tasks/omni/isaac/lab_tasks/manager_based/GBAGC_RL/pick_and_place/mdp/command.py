@@ -15,10 +15,7 @@ from omni.isaac.lab.managers import CommandTerm, CommandTermCfg
 from omni.isaac.lab.markers import VisualizationMarkers
 from omni.isaac.lab.markers.config import FRAME_MARKER_CFG
 from omni.isaac.lab.utils.configclass import configclass
-from omni.isaac.lab.utils.math import (
-    quat_mul,
-    quat_conjugate,
-)
+from local_projects.utils.math import rotation_distance
 from omni.isaac.lab.envs.mdp import SceneEntityCfg
 
 if TYPE_CHECKING:
@@ -140,7 +137,7 @@ class SubgoalsCommand(CommandTerm):
         # create markers if necessary for the first tome
         if debug_vis:
             if not hasattr(self, "subgoal_visualizer"):
-                marker_cfg = FRAME_MARKER_CFG.copy()
+                marker_cfg = FRAME_MARKER_CFG.copy()  # type:ignore
                 marker_cfg.markers["frame"].scale = (0.2, 0.2, 0.2)
                 marker_cfg.prim_path = "/Visuals/Command/subgoal_pose"
                 self.subgoal_visualizer = VisualizationMarkers(marker_cfg)
@@ -161,13 +158,13 @@ class SubgoalsCommand(CommandTerm):
         # resolve the environment IDs
         # resolve the environment IDs
         if env_ids is None:
-            env_ids = slice(None)
+            env_ids = slice(None)  # type:ignore
         # set the command counter to zero
         self.command_counter[env_ids] = 0
         self.subgoals_indices[env_ids] = 0
 
         # resample the command
-        self._resample(env_ids)
+        self._resample(env_ids)  # type:ignore
         # add logging metrics
         extras = {}
         for metric_name, metric_value in self.metrics.items():
@@ -184,21 +181,7 @@ class SubgoalsCommandCfg(CommandTermCfg):
 
     class_type: type[SubgoalsCommand] = SubgoalsCommand
 
-    asset_name: str = MISSING
+    asset_name: str = MISSING  # type:ignore
     """Name of the asset in the environment for which the commands are generated."""
 
-    subgoals_list: list[list[float]] = MISSING
-
-
-"""
-Helper function
-"""
-
-
-@torch.jit.script
-def rotation_distance(object_rot, target_rot):
-    # Orientation alignment for the cube in hand and goal cube
-    quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
-    return 2.0 * torch.asin(
-        torch.clamp(torch.norm(quat_diff[:, 1:4], p=2, dim=-1), max=1.0)
-    )  # changed quat convention
+    subgoals_list: list[list[float]] = MISSING  # type:ignore
