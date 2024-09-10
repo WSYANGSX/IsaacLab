@@ -13,12 +13,12 @@ if TYPE_CHECKING:
 def task_complete(
     env: ManagerBasedRLEnv,
     pos_threshold: float,
-    asset_cfg1: SceneEntityCfg = SceneEntityCfg("cube"),
-    asset_cfg2: SceneEntityCfg = SceneEntityCfg("plate"),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    plate_cfg: SceneEntityCfg = SceneEntityCfg("plate"),
 ) -> torch.Tensor:
     """Terminate when the cube pose are inside the threshold."""
-    cube: RigidObject = env.scene[asset_cfg1.name]
-    plate: RigidObject = env.scene[asset_cfg2.name]
+    cube: RigidObject = env.scene[cube_cfg.name]
+    plate: RigidObject = env.scene[plate_cfg.name]
 
     cube_pos_l = cube.data.root_pos_w - env.scene.env_origins
     plate_pos_l = plate.data.root_pos_w - env.scene.env_origins

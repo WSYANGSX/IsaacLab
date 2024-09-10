@@ -6,6 +6,8 @@ from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.envs import ManagerBasedRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.assets import AssetBaseCfg, RigidObjectCfg, ArticulationCfg
+from omni.isaac.lab.sensors import FrameTransformerCfg, OffsetCfg
+from omni.isaac.lab.markers import FRAME_MARKER_CFG
 from omni.isaac.lab.actuators import ImplicitActuatorCfg
 from omni.isaac.lab.managers import EventTermCfg as EventTerm
 from omni.isaac.lab.managers import ObservationGroupCfg as ObsGroup
@@ -21,6 +23,11 @@ import omni.isaac.lab_tasks.manager_based.GBAGC_RL.pick_and_place.mdp as mdp
 
 
 torch.set_printoptions(profile="full")
+
+
+marker_cfg = FRAME_MARKER_CFG.copy()
+marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+marker_cfg.prim_path = "/Visuals/FrameTransformer"
 
 
 ###
@@ -58,6 +65,7 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
                 enabled_self_collisions=False,
                 solver_position_iteration_count=12,
                 solver_velocity_iteration_count=1,
+                fix_root_link=True,
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -95,6 +103,22 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
                 damping=1e2,
             ),
         },
+    )
+
+    # ee_frame
+    ee_frame = FrameTransformerCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
+        debug_vis=False,
+        visualizer_cfg=marker_cfg,
+        target_frames=[
+            FrameTransformerCfg.FrameCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/panda_hand",
+                name="end_effector",
+                offset=OffsetCfg(
+                    pos=[0.0, 0.0, 0.09],
+                ),
+            ),
+        ],
     )
 
     # table
@@ -166,7 +190,7 @@ class ActionsCfg:
 
     arm_action: ActionTerm = mdp.PreTrainedArmActionCfg(
         policy_path=f"{logs_path}/rl_games/franka_prtpr_jointspace_direct/2024-09-08_23-16-09/",  # create this path after test
-        mode="precision"
+        mode="precision",
     )
     gripper_action: ActionTerm = mdp.BinaryJointPositionActionCfg(
         asset_name="robot",

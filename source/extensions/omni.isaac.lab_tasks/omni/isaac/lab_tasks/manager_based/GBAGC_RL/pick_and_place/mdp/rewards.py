@@ -19,15 +19,15 @@ def subgoal_reach(
     pos_threshold: float,
     rot_threshold: float,
     subgoal_reach_bonus: float,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["panda_hand"]),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ):
     """Reward when subgoal achieved."""
     # extract the asset (to enable type hinting)
 
-    ee_subgoal_dist = get_ee_subgoal_dist(env, asset_cfg).view(
+    ee_subgoal_dist = get_ee_subgoal_dist(env, ee_frame_cfg).view(
         -1,
     )
-    ee_subgoal_rot_dist = get_ee_subgoal_rot_dist(env, asset_cfg).view(
+    ee_subgoal_rot_dist = get_ee_subgoal_rot_dist(env, ee_frame_cfg).view(
         -1,
     )
 
@@ -46,18 +46,18 @@ def task_goal_reach(
     env: ManagerBasedRLEnv,
     pos_threshold: float = 0.02,
     final_goal_reach_bonus: float = 100,
-    asset_cfg1: SceneEntityCfg = SceneEntityCfg("cube"),
-    asset_cfg2: SceneEntityCfg = SceneEntityCfg("plate"),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    plate_cfg: SceneEntityCfg = SceneEntityCfg("plate"),
 ):
     """Reward when final goal achieved."""
     # extract the asset (to enable type hinting)
-    asset1: RigidObject = env.scene[asset_cfg1.name]
-    asset2: RigidObject = env.scene[asset_cfg2.name]
+    cube: RigidObject = env.scene[cube_cfg.name]
+    plate: RigidObject = env.scene[plate_cfg.name]
 
-    asset1_pos_l = asset1.data.root_pos_w - env.scene.env_origins
-    asset2_pos_l = asset2.data.root_pos_w - env.scene.env_origins
+    cube_pos_l = cube.data.root_pos_w - env.scene.env_origins
+    plate_pos_l = plate.data.root_pos_w - env.scene.env_origins
 
-    dist = torch.norm(asset1_pos_l - asset2_pos_l, p=2, dim=-1)
+    dist = torch.norm(cube_pos_l - plate_pos_l, p=2, dim=-1)
     succ = dist <= pos_threshold
 
     reward = torch.where(

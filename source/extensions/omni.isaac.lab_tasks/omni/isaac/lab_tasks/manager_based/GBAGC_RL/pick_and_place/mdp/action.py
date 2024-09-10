@@ -79,9 +79,9 @@ class PreTrainedArmAction(ActionTerm):
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits[:7])
 
         # hand-ee relationship
-        self.hand_pos_in_ee = torch.tensor([0.0, 0.0, -0.09], device=env.device).repeat(
-            self.num_envs, 1
-        )
+        self.hand_pos_in_ee = torch.tensor(
+            [0.0, 0.0, -0.09], device=env.device
+        ).repeat(self.num_envs, 1)
         self.hand_rot_in_ee = torch.tensor(
             [1.0, 0.0, 0.0, 0.0], device=self.device
         ).repeat(self.num_envs, 1)
@@ -107,7 +107,7 @@ class PreTrainedArmAction(ActionTerm):
         )
 
         self.control_mode = cfg.mode
-        
+
         # remap some of the low level observations to internal observations
         @configclass
         class LowLevelObsCfg:
@@ -119,24 +119,18 @@ class PreTrainedArmAction(ActionTerm):
 
                 ee_pose_l = ObsTerm(
                     func=get_ee_local_pose,
-                    params={
-                        "asset_cfg": SceneEntityCfg("robot", body_names="panda_hand")
-                    },
+                    params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
                 )
                 goal_pose_l = ObsTerm(
                     func=generated_commands, params={"command_name": "subgoals"}
                 )
                 dist = ObsTerm(
                     func=get_ee_subgoal_dist,
-                    params={
-                        "asset_cfg": SceneEntityCfg("robot", body_names="panda_hand")
-                    },
+                    params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
                 )
                 rot_dist = ObsTerm(
                     func=get_ee_subgoal_rot_dist,
-                    params={
-                        "asset_cfg": SceneEntityCfg("robot", body_names="panda_hand")
-                    },
+                    params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
                 )
                 arm_dof_pos = ObsTerm(
                     func=get_arm_dof_pos,
@@ -255,7 +249,10 @@ class PreTrainedArmAction(ActionTerm):
                 self.robot.data.body_quat_w[:, self.hand_link_idx, :],
             )
 
-            target_ee_pos, target_ee_rot = low_level_obs[:, 7:10], low_level_obs[:, 10:14]
+            target_ee_pos, target_ee_rot = (
+                low_level_obs[:, 7:10],
+                low_level_obs[:, 10:14],
+            )
             target_hand_pos, target_hand_rot = combine_frame_transforms(
                 target_ee_pos, target_ee_rot, self.hand_pos_in_ee, self.hand_rot_in_ee
             )
@@ -272,7 +269,9 @@ class PreTrainedArmAction(ActionTerm):
             )
 
             arm_targets = torch.where(
-                current_dist.unsqueeze(0).view(-1, 1) >= 0.05, arm_targets1, arm_targets2
+                current_dist.unsqueeze(0).view(-1, 1) >= 0.05,
+                arm_targets1,
+                arm_targets2,
             )
 
         return arm_targets

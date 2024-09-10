@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from dataclasses import MISSING
 
 from omni.isaac.lab.assets import Articulation
+from omni.isaac.lab.sensors import FrameTransformer
 from omni.isaac.lab.managers import CommandTerm, CommandTermCfg
 from omni.isaac.lab.markers import VisualizationMarkers
 from omni.isaac.lab.markers.config import FRAME_MARKER_CFG
@@ -17,7 +18,6 @@ from omni.isaac.lab.utils.configclass import configclass
 from omni.isaac.lab.utils.math import (
     quat_mul,
     quat_conjugate,
-    combine_frame_transforms,
 )
 from omni.isaac.lab.envs.mdp import SceneEntityCfg
 
@@ -44,19 +44,13 @@ class SubgoalsCommand(CommandTerm):
         # obtain the robot and terrain assets
         # -- robot
         self.robot: Articulation = env.scene[cfg.asset_name]
+        self.ee_frame: FrameTransformer = env.scene["ee_frame"]
 
         self.robot_entity_cfg = SceneEntityCfg(
             "robot", joint_names=["panda_joint.*"], body_names=["panda_hand"]
         )
         self.robot_entity_cfg.resolve(env.scene)
         self.hand_link_idx = self.robot_entity_cfg.body_ids[0]  # type: ignore
-
-        self.hand_pos_in_ee = torch.tensor(
-            [0.0, 0.0, -0.09], device=self.device
-        ).repeat(self.num_envs, 1)
-        self.hand_rot_in_ee = torch.tensor(
-            [1.0, 0.0, 0.0, 0.0], device=self.device
-        ).repeat(self.num_envs, 1)
 
         # -- subgoals
         self.subgoals = torch.tensor(cfg.subgoals_list, device=env.device).repeat(
@@ -99,24 +93,16 @@ class SubgoalsCommand(CommandTerm):
 
     def _update_metrics(self):
         # logs data
-        hand_pos_cmd, hand_rot_cmd = combine_frame_transforms(
-            self.ee_pos_command,
-            self.ee_rot_command,
-            self.hand_pos_in_ee,
-            self.hand_rot_in_ee,
+        ee_pos, ee_rot = (
+            self.ee_frame.data.target_pos_source,
+            self.ee_frame.data.target_quat_source,
         )
 
         self.metrics["error_pos"] = torch.norm(
-            hand_pos_cmd
-            - (
-                self.robot.data.body_pos_w[:, self.hand_link_idx, :]
-                - self._env.scene.env_origins
-            ),
+            self.ee_pos_command - ee_pos,
             dim=-1,
         )
-        self.metrics["error_rot"] = rotation_distance(
-            self.robot.data.body_quat_w[:, self.hand_link_idx, :], hand_rot_cmd
-        )
+        self.metrics["error_rot"] = rotation_distance(ee_rot, self.ee_rot_command)
 
         # determine wherther to reach
         pos_reach = torch.where(
