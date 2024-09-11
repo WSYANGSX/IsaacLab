@@ -85,3 +85,8 @@ def calculate_angle_between_vectors(v1: torch.Tensor, v2: torch.Tensor):
     theta_radians = torch.arccos(cos_theta)
 
     return theta_radians
+
+
+@torch.jit.script
+def scale(x, lower, upper):
+    return 0.5 * (x + 1.0) * (upper - lower) + lower

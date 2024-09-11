@@ -8,7 +8,7 @@ from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.envs import ManagerBasedRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
-from omni.isaac.lab.assets import AssetBaseCfg, RigidObjectCfg, ArticulationCfg
+from omni.isaac.lab.assets import AssetBaseCfg, ArticulationCfg
 from omni.isaac.lab.sensors import FrameTransformerCfg, OffsetCfg
 from omni.isaac.lab.markers import FRAME_MARKER_CFG
 from omni.isaac.lab.actuators import ImplicitActuatorCfg
@@ -22,7 +22,7 @@ from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 from omni.isaac.lab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from local_projects.utils.path import get_logs_path
 
-import omni.isaac.lab_tasks.manager_based.GBAGC_RL.pick_and_place.mdp as mdp
+import omni.isaac.lab_tasks.manager_based.GBAGC_RL.cabinet_open.mdp as mdp
 
 
 torch.set_printoptions(profile="full")
@@ -32,8 +32,8 @@ torch.set_printoptions(profile="full")
 # scene define
 ###
 @configclass
-class PickAndPlaceSceneCfg(InteractiveSceneCfg):
-    """configuration for a franka pandas pick-and-place scene"""
+class CabinetOpenSceneCfg(InteractiveSceneCfg):
+    """configuration for a franka pandas cabinet-open scene"""
 
     # ground plane
     ground = AssetBaseCfg(
@@ -103,52 +103,45 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
         },
     )
 
+    cabinet = ArticulationCfg(
+        prim_path="{ENV_REGEX_NS}/Cabinet",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Sektion_Cabinet/sektion_cabinet_instanceable.usd",
+            activate_contact_sensors=False,
+        ),
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=(0.8, 0, 0.4),
+            rot=(0.0, 0.0, 0.0, 1.0),
+            joint_pos={
+                "door_left_joint": 0.0,
+                "door_right_joint": 0.0,
+                "drawer_bottom_joint": 0.0,
+                "drawer_top_joint": 0.0,
+            },
+        ),
+        actuators={
+            "drawers": ImplicitActuatorCfg(
+                joint_names_expr=["drawer_top_joint", "drawer_bottom_joint"],
+                effort_limit=87.0,
+                velocity_limit=100.0,
+                stiffness=10.0,
+                damping=1.0,
+            ),
+            "doors": ImplicitActuatorCfg(
+                joint_names_expr=["door_left_joint", "door_right_joint"],
+                effort_limit=87.0,
+                velocity_limit=100.0,
+                stiffness=10.0,
+                damping=2.5,
+            ),
+        },
+    )
+    
     # ee_frame
     ee_frame: FrameTransformerCfg = MISSING
 
-    # table
-    table = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Table",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path="omniverse://localhost/Library/table/table/parts/Part_1_JHD.usd",
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.5, 0.4)),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, -0.04)),
-    )
-
-    # object
-    cube = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Cube",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
-            scale=(0.8, 0.8, 0.8),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1,
-                max_angular_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_depenetration_velocity=5.0,
-                disable_gravity=False,
-            ),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.25, -0.3, 0.055), rot=(1.0, 0.0, 0.0, 0.0)
-        ),
-    )
-
-    # plate
-    plate = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Plate",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path="omniverse://localhost/Library/plate/plate.usd/plate/parts/Part_1_JHD.usd",
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.2, 0.0)),
-    )
+    # cabinet handel_frame
+    handle_frame: FrameTransformerCfg = MISSING
 
 
 ###
@@ -204,8 +197,8 @@ class ObservationsCfg:
 
         # observation terms (order preserved)
 
-        cube_pose = ObsTerm(
-            func=mdp.get_asset_local_pose,
+        cabinet_handle_pose = ObsTerm(
+            func=mdp.get_handle_local_pose,
             params={"asset_cfg": SceneEntityCfg("cube")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
@@ -213,21 +206,6 @@ class ObservationsCfg:
         ee_pose = ObsTerm(
             func=mdp.get_ee_local_pose,
             params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
-
-        ee_cube_dist = ObsTerm(
-            func=mdp.get_ee_cube_dist,
-            params={
-                "ee_frame_cfg": SceneEntityCfg("ee_frame"),
-                "cube_cfg": SceneEntityCfg("cube"),
-            },
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
-
-        plate_pose = ObsTerm(
-            func=mdp.get_asset_local_pose,
-            params={"asset_cfg": SceneEntityCfg("plate")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
@@ -331,11 +309,11 @@ class EventCfg:
 
 
 @configclass
-class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
+class CabinetOpenEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for pick and place env."""
 
     # Scene settings
-    scene: PickAndPlaceSceneCfg = PickAndPlaceSceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: CabinetOpenSceneCfg = CabinetOpenSceneCfg(num_envs=4096, env_spacing=2.5)
     # Basic setting
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -356,7 +334,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 1.0 / 120
         self.sim.render_interval = self.decimation
 
-        # Listens to the required transforms
+        # Listens to the EE transforms
         marker_cfg = FRAME_MARKER_CFG.copy()
         marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
         marker_cfg.prim_path = "/Visuals/FrameTransformer"
@@ -370,6 +348,27 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
                     name="end_effector",
                     offset=OffsetCfg(
                         pos=[0.0, 0.0, 0.09],
+                    ),
+                ),
+            ],
+        )
+
+        # Listens to the handle transforms
+        FRAME_MARKER_SMALL_CFG = FRAME_MARKER_CFG.copy()
+        FRAME_MARKER_SMALL_CFG.markers["frame"].scale = (0.10, 0.10, 0.10)
+        self.scene.handle_frame = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Cabinet/sektion",
+            debug_vis=True,
+            visualizer_cfg=FRAME_MARKER_SMALL_CFG.replace(
+                prim_path="/Visuals/CabinetFrameTransformer"
+            ),
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Cabinet/drawer_handle_top",
+                    name="drawer_handle_top",
+                    offset=OffsetCfg(
+                        pos=(0.305, 0.0, 0.01),
+                        rot=(0.5, 0.5, -0.5, -0.5),  # align with end-effector frame
                     ),
                 ),
             ],
