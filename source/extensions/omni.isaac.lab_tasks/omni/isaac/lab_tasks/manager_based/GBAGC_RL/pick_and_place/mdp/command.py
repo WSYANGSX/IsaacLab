@@ -107,8 +107,8 @@ class SubgoalsCommand(CommandTerm):
         self.metrics["error_rot"] = rotation_distance(ee_rot, self.ee_rot_command)
 
         # determine wherther to reach
-        pos_reach = self.metrics["error_pos"] <= 0.01
-        rot_reach = self.metrics["error_rot"] <= 0.2
+        pos_reach = self.metrics["error_pos"] <= 0.005
+        rot_reach = self.metrics["error_rot"] <= 0.1
 
         reach = pos_reach & rot_reach
 

@@ -4,4 +4,3 @@ from .rewards import *
 from .observations import *
 from .termination import *
 from .command import *
-from .event import *

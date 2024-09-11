@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import torch
+from dataclasses import MISSING
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.utils import configclass
@@ -23,11 +26,6 @@ import omni.isaac.lab_tasks.manager_based.GBAGC_RL.pick_and_place.mdp as mdp
 
 
 torch.set_printoptions(profile="full")
-
-
-marker_cfg = FRAME_MARKER_CFG.copy()
-marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
-marker_cfg.prim_path = "/Visuals/FrameTransformer"
 
 
 ###
@@ -106,20 +104,7 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     )
 
     # ee_frame
-    ee_frame = FrameTransformerCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
-        debug_vis=False,
-        visualizer_cfg=marker_cfg,
-        target_frames=[
-            FrameTransformerCfg.FrameCfg(
-                prim_path="{ENV_REGEX_NS}/Robot/panda_hand",
-                name="end_effector",
-                offset=OffsetCfg(
-                    pos=[0.0, 0.0, 0.09],
-                ),
-            ),
-        ],
-    )
+    ee_frame: FrameTransformerCfg = MISSING
 
     # table
     table = RigidObjectCfg(
@@ -137,10 +122,19 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     cube = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/block_instanceable.usd",
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+            scale=(0.8, 0.8, 0.8),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=1,
+                max_angular_velocity=1000.0,
+                max_linear_velocity=1000.0,
+                max_depenetration_velocity=5.0,
+                disable_gravity=False,
+            ),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.25, -0.3, 0.05), rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.25, -0.3, 0.055), rot=(1.0, 0.0, 0.0, 0.0)
         ),
     )
 
@@ -167,7 +161,7 @@ logs_path = mdp.get_logs_path()
 # get subgoals_list
 subgoals_list = [
     [0.25, -0.3, 0.25, 0.0, 1.0, 0.0, 0.0],
-    [0.25, -0.3, 0.05, 0.0, 1.0, 0.0, 0.0],
+    [0.25, -0.3, 0.04, 0.0, 1.0, 0.0, 0.0],
     [0.25, 0.2, 0.15, 0.0, 1.0, 0.0, 0.0],
 ]
 
@@ -271,8 +265,8 @@ class RewardsCfg:
         func=mdp.subgoal_reach,
         weight=1,
         params={
-            "pos_threshold": 0.01,
-            "rot_threshold": 0.2,
+            "pos_threshold": 0.005,
+            "rot_threshold": 0.1,
             "subgoal_reach_bonus": 20,
             "ee_frame_cfg": SceneEntityCfg("ee_frame"),
             "subgoal_cmd_name": "subgoals",
@@ -319,25 +313,11 @@ class EventCfg:
         params={
             "position_range": (0.5, 1.5),
             "velocity_range": (0.0, 0.0),
-            "asset_cfg": SceneEntityCfg("robot")
+            "asset_cfg": SceneEntityCfg("robot"),
         },
     )
 
-    reset_cube_pose = EventTerm(
-        func=mdp.reset_asset_pose,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("cube"),
-        },
-    )
-
-    reset_plate_pose = EventTerm(
-        func=mdp.reset_asset_pose,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("plate"),
-        },
-    )
+    reset_scene = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
 
 @configclass
@@ -358,10 +338,29 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4
-        self.episode_length_s = 12.0
+        self.decimation = 3
+        self.episode_length_s = 8.0
         self.viewer.eye = (2.0, 2.0, 2.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)
         # simulation settings
         self.sim.dt = 1.0 / 120
         self.sim.render_interval = self.decimation
+
+        # Listens to the required transforms
+        marker_cfg = FRAME_MARKER_CFG.copy()
+        marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+        marker_cfg.prim_path = "/Visuals/FrameTransformer"
+        self.scene.ee_frame = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
+            debug_vis=False,
+            visualizer_cfg=marker_cfg,
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/panda_hand",
+                    name="end_effector",
+                    offset=OffsetCfg(
+                        pos=[0.0, 0.0, 0.09],
+                    ),
+                ),
+            ],
+        )

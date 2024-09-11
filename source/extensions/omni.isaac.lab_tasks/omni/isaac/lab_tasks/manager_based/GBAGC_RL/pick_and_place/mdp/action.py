@@ -239,7 +239,7 @@ class PreTrainedArmAction(ActionTerm):
             * self.action_scale
         )
 
-        arm_targets1 = torch.clamp(
+        arm_targets = torch.clamp(
             arm_targets1,
             self.robot_dof_lower_limits[:7],
             self.robot_dof_upper_limits[:7],
@@ -270,15 +270,21 @@ class PreTrainedArmAction(ActionTerm):
             self.diff_ik_controller.set_command(
                 command=torch.cat((target_hand_pos, target_hand_rot), dim=-1)
             )
-            arm_targets2 = self.diff_ik_controller.compute(
+            ik_arm_targets = self.diff_ik_controller.compute(
                 curr_hand_pos, curr_hand_rot, jacobian, current_arm_dof_pos
             )
 
-            arm_targets = torch.where(
-                current_dist.unsqueeze(0).view(-1, 1) >= 0.05,
-                arm_targets1,
-                arm_targets2,
+            ik_arm_targets = torch.clamp(
+                ik_arm_targets,
+                self.robot_dof_lower_limits[:7],
+                self.robot_dof_upper_limits[:7],
             )
+
+        arm_targets = torch.where(
+            current_dist.unsqueeze(0).view(-1, 1) >= 0.05,
+            arm_targets,
+            ik_arm_targets,
+        )
 
         return arm_targets
 
@@ -296,7 +302,7 @@ class PreTrainedArmActionCfg(ActionTermCfg):
     """Name of the asset in the environment for which the commands are generated."""
     policy_path: str = MISSING  # type: ignore
     """Path to the low level policy (.pt files)."""
-    low_level_decimation: int = 1
+    low_level_decimation: int = 4
     """Decimation factor for the low level action term."""
     mode: Literal["common", "precision"] = MISSING  # type: ignore
 
