@@ -96,9 +96,10 @@ def get_ee_cube_dist(
     # extract the asset (to enable type hinting)
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     cube: RigidObject = env.scene[cube_cfg.name]
+
     # obtain ee/cube pose
     ee_pos_l = ee_frame.data.target_pos_source[..., 0, :]
-    cube_pos_l = cube.data.body_pos_w - env.scene.env_origins
+    cube_pos_l = cube.data.root_pos_w - env.scene.env_origins
 
     return torch.norm(ee_pos_l - cube_pos_l, p=2, dim=-1, keepdim=True)
 
@@ -112,7 +113,7 @@ def get_ee_cube_rot_dist(
     cube: RigidObject = env.scene[cube_cfg.name]
     # obtain ee/cube pose
     ee_rot_l = ee_frame.data.target_quat_source[..., 0, :]
-    cube_pos_l = cube.data.body_quat_w
+    cube_pos_l = cube.data.root_quat_w
 
     return rotation_distance(cube_pos_l, ee_rot_l).unsqueeze(0).view(-1, 1)
 

@@ -203,21 +203,31 @@ class ObservationsCfg:
         """Observations for policy group."""
 
         # observation terms (order preserved)
+
         cube_pose = ObsTerm(
             func=mdp.get_asset_local_pose,
             params={"asset_cfg": SceneEntityCfg("cube")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
-        plate_pose = ObsTerm(
-            func=mdp.get_asset_local_pose,
-            params={"asset_cfg": SceneEntityCfg("plate")},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
-
         ee_pose = ObsTerm(
             func=mdp.get_ee_local_pose,
             params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
+
+        ee_cube_dist = ObsTerm(
+            func=mdp.get_ee_cube_dist,
+            params={
+                "ee_frame_cfg": SceneEntityCfg("ee_frame"),
+                "cube_cfg": SceneEntityCfg("cube"),
+            },
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
+
+        plate_pose = ObsTerm(
+            func=mdp.get_asset_local_pose,
+            params={"asset_cfg": SceneEntityCfg("plate")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
@@ -250,7 +260,7 @@ class ObservationsCfg:
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
-            self.enable_corruption = True
+            self.enable_corruption = False
             self.concatenate_terms = True
 
     policy: PolicyCfg = PolicyCfg()
