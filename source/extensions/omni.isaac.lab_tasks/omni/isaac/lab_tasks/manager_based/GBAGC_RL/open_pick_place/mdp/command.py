@@ -49,10 +49,6 @@ class SubgoalsCommand(CommandTerm):
         self.robot_entity_cfg.resolve(env.scene)
         self.hand_link_idx = self.robot_entity_cfg.body_ids[0]  # type: ignore
 
-        self.pos_threshold = cfg.pos_threshold
-        self.rot_threshold = cfg.rot_threshold
-        
-        
         # -- subgoals
         self.subgoals = (
             torch.tensor(cfg.subgoals_list, device=env.device)
@@ -111,8 +107,8 @@ class SubgoalsCommand(CommandTerm):
         self.metrics["error_rot"] = rotation_distance(ee_rot, self.ee_rot_command)
 
         # determine wherther to reach
-        pos_reach = self.metrics["error_pos"] <= self.pos_threshold
-        rot_reach = self.metrics["error_rot"] <= self.rot_threshold
+        pos_reach = self.metrics["error_pos"] <= 0.005
+        rot_reach = self.metrics["error_rot"] <= 0.1
 
         reach = pos_reach & rot_reach
 
@@ -192,7 +188,3 @@ class SubgoalsCommandCfg(CommandTermCfg):
     """Name of the asset in the environment for which the commands are generated."""
 
     subgoals_list: list[list[float]] = MISSING  # type:ignore
-
-    pos_threshold: float = MISSING
-
-    rot_threshold: float = MISSING

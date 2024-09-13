@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from omni.isaac.lab.assets import Articulation
+from omni.isaac.lab.assets import RigidObject
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.sensors import FrameTransformer
 from local_projects.utils.math import rotation_distance
@@ -45,21 +45,21 @@ def subgoal_reach(
 
 def task_goal_reach(
     env: ManagerBasedRLEnv,
-    pos_threshold: float = 0.39,
+    pos_threshold: float = 0.02,
     final_goal_reach_bonus: float = 100,
-    cabinet_cfg: SceneEntityCfg = SceneEntityCfg(
-        "cabinet", joint_names=["drawer_top_joint"]
-    ),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    plate_cfg: SceneEntityCfg = SceneEntityCfg("plate"),
 ):
     """Reward when final goal achieved."""
     # extract the asset (to enable type hinting)
-    cabinet: Articulation = env.scene[cabinet_cfg.name]
+    cube: RigidObject = env.scene[cube_cfg.name]
+    plate: RigidObject = env.scene[plate_cfg.name]
 
-    top_drawer_joint_pos = torch.reshape(
-        cabinet.data.joint_pos[:, cabinet_cfg.joint_ids], (env.num_envs,)
-    )
+    cube_pos_l = cube.data.root_pos_w - env.scene.env_origins
+    plate_pos_l = plate.data.root_pos_w - env.scene.env_origins
 
-    succ = top_drawer_joint_pos >= pos_threshold
+    dist = torch.norm(cube_pos_l - plate_pos_l, p=2, dim=-1)
+    succ = dist <= pos_threshold
 
     reward = torch.where(
         succ,
