@@ -169,7 +169,7 @@ class CommandsCfg:
         subgoals_list=subgoals_list,
         asset_name="robot",
         debug_vis=True,
-        pos_threshold=0.008,
+        pos_threshold=0.01,
         rot_threshold=0.15,
     )
 
@@ -210,6 +210,21 @@ class ObservationsCfg:
             func=mdp.get_ee_local_pose,
             params={"ee_frame_cfg": SceneEntityCfg("ee_frame")},
             noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
+
+        cabinet_ee_dist = ObsTerm(
+            func=mdp.get_ee_handle_dist,
+            params={
+                "ee_frame_cfg": SceneEntityCfg("ee_frame"),
+                "handle_frame_cfg": SceneEntityCfg("handle_frame"),
+            },
+        )
+
+        drawer_pos = ObsTerm(
+            func=mdp.get_drawer_position,
+            params={
+                "asset_cfg": SceneEntityCfg("cabinet", joint_names=["drawer_top_joint"])
+            },
         )
 
         subgoal_pose = ObsTerm(
@@ -275,6 +290,11 @@ class RewardsCfg:
         },
     )
 
+    eposide_length = RewardTerm(
+        func=mdp.eposide_length,
+        weight=0.001,
+    )
+
 
 @configclass
 class TerminationsCfg:
@@ -327,7 +347,7 @@ class CabinetOpenEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4
+        self.decimation = 2
         self.episode_length_s = 8.0
         self.viewer.eye = (2.0, 2.0, 2.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)

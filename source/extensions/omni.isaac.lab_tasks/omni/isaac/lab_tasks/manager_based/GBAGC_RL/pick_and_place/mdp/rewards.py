@@ -67,3 +67,9 @@ def task_goal_reach(
         torch.zeros_like(succ),
     )
     return reward
+
+
+def eposide_length(env: ManagerBasedRLEnv) -> torch.Tensor:
+    reward = env.episode_length_buf
+
+    return reward

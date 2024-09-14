@@ -18,11 +18,11 @@ def get_handle_local_pose(
 ) -> torch.Tensor:
     """get local pose of end_effector"""
     # extract the asset (to enable type hinting)
-    ee_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
+    handle_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
     # obtain panda hand pose
     handle_pos_l, handle_quat_l = (
-        ee_frame.data.target_pos_source[..., 0, :],
-        ee_frame.data.target_quat_source[..., 0, :],
+        handle_frame.data.target_pos_source[..., 0, :],
+        handle_frame.data.target_quat_source[..., 0, :],
     )
 
     return torch.cat((handle_pos_l, handle_quat_l), dim=-1)
@@ -32,11 +32,11 @@ def get_handle_local_pos(
     env: ManagerBasedRLEnv,
     handle_frame_cfg: SceneEntityCfg = SceneEntityCfg("handle_frame"),
 ) -> torch.Tensor:
-    ee_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
+    handle_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
     # obtain panda hand pose
-    ee_pos_l = ee_frame.data.target_pos_source[..., 0, :]
+    handle_pos_l = handle_frame.data.target_pos_source[..., 0, :]
 
-    return ee_pos_l
+    return handle_pos_l
 
 
 def get_handle_local_quat(
@@ -44,11 +44,11 @@ def get_handle_local_quat(
     handle_frame_cfg: SceneEntityCfg = SceneEntityCfg("handle_frame"),
 ) -> torch.Tensor:
     # extract the asset (to enable type hinting)
-    ee_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
+    handle_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
     # obtain panda hand pose
-    ee_quat_l = ee_frame.data.target_quat_source[..., 0, :]
+    handle_quat_l = handle_frame.data.target_quat_source[..., 0, :]
 
-    return ee_quat_l
+    return handle_quat_l
 
 
 def get_ee_local_pose(
@@ -89,6 +89,20 @@ def get_ee_local_quat(
     ee_quat_l = ee_frame.data.target_quat_source[..., 0, :]
 
     return ee_quat_l
+
+
+def get_ee_handle_dist(
+    env: ManagerBasedRLEnv,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    handle_frame_cfg: SceneEntityCfg = SceneEntityCfg("handle_frame"),
+) -> torch.Tensor:
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    ee_pos_l = ee_frame.data.target_pos_source[..., 0, :]
+
+    handle_frame: FrameTransformer = env.scene[handle_frame_cfg.name]
+    handle_pos_l = handle_frame.data.target_pos_source[..., 0, :]
+
+    return torch.norm(ee_pos_l - handle_pos_l, p=2, dim=-1, keepdim=True)
 
 
 def get_ee_subgoal_dist(

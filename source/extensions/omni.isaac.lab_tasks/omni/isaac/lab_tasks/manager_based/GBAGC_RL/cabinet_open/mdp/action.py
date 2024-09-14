@@ -299,6 +299,6 @@ class PreTrainedArmActionCfg(ActionTermCfg):
     """Name of the asset in the environment for which the commands are generated."""
     policy_path: str = MISSING  # type: ignore
     """Path to the low level policy (.pt files)."""
-    low_level_decimation: int = 4
+    low_level_decimation: int = 1
     """Decimation factor for the low level action term."""
     mode: Literal["common", "precision"] = MISSING  # type: ignore

@@ -19,7 +19,7 @@ def subgoal_reach(
     subgoal_reach_bonus: float,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
     subgoal_cmd_name: str = "subgoal",
-):
+) -> torch.Tensor:
     """Reward when subgoal achieved."""
     # extract the asset (to enable type hinting)
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
@@ -50,7 +50,7 @@ def task_goal_reach(
     cabinet_cfg: SceneEntityCfg = SceneEntityCfg(
         "cabinet", joint_names=["drawer_top_joint"]
     ),
-):
+) -> torch.Tensor:
     """Reward when final goal achieved."""
     # extract the asset (to enable type hinting)
     cabinet: Articulation = env.scene[cabinet_cfg.name]
@@ -66,4 +66,10 @@ def task_goal_reach(
         torch.full_like(succ, fill_value=final_goal_reach_bonus),
         torch.zeros_like(succ),
     )
+    return reward
+
+
+def eposide_length(env: ManagerBasedRLEnv) -> torch.Tensor:
+    reward = env.episode_length_buf
+
     return reward

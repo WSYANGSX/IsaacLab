@@ -275,9 +275,9 @@ class RewardsCfg:
         func=mdp.subgoal_reach,
         weight=1,
         params={
-            "pos_threshold": 0.005,
+            "pos_threshold": 0.01,
             "rot_threshold": 0.1,
-            "subgoal_reach_bonus": 20,
+            "subgoal_reach_bonus": 100,
             "ee_frame_cfg": SceneEntityCfg("ee_frame"),
             "subgoal_cmd_name": "subgoals",
         },
@@ -288,11 +288,16 @@ class RewardsCfg:
         func=mdp.task_goal_reach,
         weight=1,
         params={
-            "pos_threshold": 0.08,
-            "final_goal_reach_bonus": 200,
+            "pos_threshold": 0.05,
+            "final_goal_reach_bonus": 500,
             "cube_cfg": SceneEntityCfg("cube"),
             "plate_cfg": SceneEntityCfg("plate"),
         },
+    )
+
+    eposide_length = RewardTerm(
+        func=mdp.eposide_length,
+        weight=0.001,
     )
 
 
@@ -348,7 +353,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 3
+        self.decimation = 4
         self.episode_length_s = 8.0
         self.viewer.eye = (2.0, 2.0, 2.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)
