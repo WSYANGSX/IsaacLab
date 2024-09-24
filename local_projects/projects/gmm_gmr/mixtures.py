@@ -14,7 +14,7 @@ class GMM_GMR(object):
         :param trajectories: Trajectories obtained from demonstrations. If this not
         an aligned numpy array (i.e list of non-aligned trajectories) trajectories are
         aligned
-        :param n_components: Number of PCA components
+        :param pca_components: Number of PCA components
         """
         if isinstance(trajectories, list):
             self.trajectories = np.array(align_trajectories(trajectories))
@@ -34,7 +34,7 @@ class GMM_GMR(object):
         temporal = np.array([range(self.T)] * self.N).reshape(-1, 1)
         temporal_spatio = np.concatenate((temporal, trajectories_latent), axis=1)
 
-        components = [5, 10, 15, 20, 25, 30, 35, 40, 45]
+        components = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
         bics = []
 
         for c in components:

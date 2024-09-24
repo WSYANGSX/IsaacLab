@@ -79,6 +79,9 @@ def main():
     # add termination condition for reaching the goal otherwise the environment won't reset
     env_cfg.terminations.object_reached_goal = DoneTerm(func=mdp.object_reached_goal)
 
+    # change reset envent
+    env_cfg.events.reset_object_position = None
+
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
 
