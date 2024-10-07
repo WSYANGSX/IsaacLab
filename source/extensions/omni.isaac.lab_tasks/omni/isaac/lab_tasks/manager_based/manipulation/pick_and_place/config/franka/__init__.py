@@ -1,0 +1,80 @@
+# Copyright (c) 2022-2024, The Isaac Lab Project Developers.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+import gymnasium as gym
+import os
+
+from . import agents, sparse_reward_env_cfg, dense_reward_env_cfg
+
+##
+# Register Gym environments.
+##
+
+##
+# Joint Position Control
+##
+
+# sparse reward
+gym.register(
+    id="Isaac-Pick_And_Place-Cube-Franka-Sparse-PPO-v0",
+    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": sparse_reward_env_cfg.SparseRewardEnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-Pick_And_Place-Cube-Franka-Sparse-SAC-v0",
+    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": sparse_reward_env_cfg.SparseRewardEnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_sac_cfg.yaml",
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-Pick_And_Place-Cube-Franka-Sparse-DDPG-v0",
+    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": sparse_reward_env_cfg.SparseRewardEnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ddpg_cfg.yaml",
+    },
+    disable_env_checker=True,
+)
+
+
+# sparse reward
+gym.register(
+    id="Isaac-Pick_And_Place-Cube-Franka-Dense-PPO-v0",
+    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": dense_reward_env_cfg.DenseRewardEnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-Pick_And_Place-Cube-Franka-Dense-SAC-v0",
+    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": dense_reward_env_cfg.DenseRewardEnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_sac_cfg.yaml",
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-Pick_And_Place-Cube-Franka-Dense-DDPG-v0",
+    entry_point="omni.isaac.lab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": dense_reward_env_cfg.DenseRewardEnvCfg,
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ddpg_cfg.yaml",
+    },
+    disable_env_checker=True,
+)

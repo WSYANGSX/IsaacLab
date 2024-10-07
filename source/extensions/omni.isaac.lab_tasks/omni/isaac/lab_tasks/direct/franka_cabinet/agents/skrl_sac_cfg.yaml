@@ -18,7 +18,34 @@ models:
         layers: [256, 128, 64]
         activations: elu
     output: ACTIONS
-  value:  # see deterministic_model parameters
+  critic_1:  # see deterministic_model parameters
+    class: DeterministicMixin
+    clip_actions: False
+    network:
+      - name: net
+        input: STATES
+        layers: [256, 128, 64]
+        activations: elu
+    output: ONE
+  critic_2:
+    class: DeterministicMixin
+    clip_actions: False
+    network:
+      - name: net
+        input: STATES
+        layers: [256, 128, 64]
+        activations: elu
+    output: ONE
+  target_critic_1:
+    class: DeterministicMixin
+    clip_actions: False
+    network:
+      - name: net
+        input: STATES
+        layers: [256, 128, 64]
+        activations: elu
+    output: ONE
+  target_critic_2:
     class: DeterministicMixin
     clip_actions: False
     network:
@@ -28,7 +55,6 @@ models:
         activations: elu
     output: ONE
 
-
 # Rollout memory
 # https://skrl.readthedocs.io/en/latest/api/memories/random.html
 memory:
@@ -36,37 +62,30 @@ memory:
   memory_size: -1  # automatically determined (same as agent:rollouts)
 
 
-# PPO agent configuration (field names are from PPO_DEFAULT_CONFIG)
+# SAC agent configuration (field names are from SAC_DEFAULT_CONFIG)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html
 agent:
-  class: PPO
-  rollouts: 16
-  learning_epochs: 8
-  mini_batches: 8
+  class: SAC
+  radient_steps: 1
+  batch_size: 64
   discount_factor: 0.99
-  lambda: 0.95
-  learning_rate: 5.0e-04
-  learning_rate_scheduler: KLAdaptiveLR
-  learning_rate_scheduler_kwargs:
-    kl_threshold: 0.008
-  state_preprocessor: RunningStandardScaler
-  state_preprocessor_kwargs: null
-  value_preprocessor: RunningStandardScaler
-  value_preprocessor_kwargs: null
+  polyak: 0.005
+  actor_learning_rate: 1e-3
+  critic_learning_rate: 1e-3
+  learning_rate_scheduler: None
+  learning_rate_scheduler_kwargs: {}
+  state_preprocessor: None
+  state_preprocessor_kwargs: {}
   random_timesteps: 0
   learning_starts: 0
-  grad_norm_clip: 1.0
-  ratio_clip: 0.2
-  value_clip: 0.2
-  clip_predicted_values: True
+  grad_norm_clip: 0.5
   entropy_loss_scale: 0.0
-  value_loss_scale: 2.0
-  kl_threshold: 0.0
-  rewards_shaper_scale: 0.01
+  rewards_shaper: None
   time_limit_bootstrap: False
+
   # logging and checkpoint
   experiment:
-    directory: "franka_cabinet_direct_ppo"
+    directory: "franka_cabinet_direct_sac"
     experiment_name: ""
     write_interval: auto
     checkpoint_interval: auto

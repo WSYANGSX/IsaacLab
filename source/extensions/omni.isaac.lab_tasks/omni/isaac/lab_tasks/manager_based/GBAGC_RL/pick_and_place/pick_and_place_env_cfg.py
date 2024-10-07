@@ -110,7 +110,7 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     table = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",
         spawn=sim_utils.UsdFileCfg(
-            usd_path="omniverse://localhost/Library/table/table/parts/Part_1_JHD.usd",
+            usd_path="omniverse://localhost/Library/my_usd/table/parts/Part_1_JHD.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.5, 0.4)),
@@ -142,7 +142,7 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     plate = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Plate",
         spawn=sim_utils.UsdFileCfg(
-            usd_path="omniverse://localhost/Library/plate/plate.usd/plate/parts/Part_1_JHD.usd",
+            usd_path="omniverse://localhost/Library/my_usd/plate/parts/Part_1_JHD.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
