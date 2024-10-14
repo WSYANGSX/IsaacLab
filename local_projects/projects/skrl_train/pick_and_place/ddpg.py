@@ -100,7 +100,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 800
 cfg["experiment"]["checkpoint_interval"] = 8000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Direct-DDPG-Sparse"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-v0-DDPG"
 
 agent = DDPG(
     models=models1,
@@ -113,7 +113,7 @@ agent = DDPG(
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 100000, "headless": True}
+cfg_trainer = {"timesteps": 160000, "headless": True}
 trainer = SequentialTrainer(
     cfg=cfg_trainer,
     env=env,
