@@ -40,7 +40,7 @@ def object_orientation_in_robot_root_frame(
     robot: RigidObject = env.scene[robot_cfg.name]
     object: RigidObject = env.scene[object_cfg.name]
     object_pos_w = object.data.root_pos_w[:, :3]
-    object_rot_w = object.data.root_pos_w[:, 3:7]
+    object_rot_w = object.data.root_quat_w[:, :4]
     _, object_rot_b = subtract_frame_transforms(
         robot.data.root_state_w[:, :3],
         robot.data.root_state_w[:, 3:7],
