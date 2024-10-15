@@ -161,7 +161,7 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
     )
 
     # action rate
-    action_scale = [5.0, 5.0, 5.0, 2.5, 2.5, 2.5, 2.5]
+    action_scale = 0.5
 
     # reward weight & threshold
     # weight
@@ -208,7 +208,6 @@ class OpenPickPlaceEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.dt = self.cfg.sim.dt * self.cfg.decimation
-        self.action_scales = torch.tensor(self.cfg.action_scale, device=self.device)
 
         # robot propertities
         self.arm_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"])
@@ -216,12 +215,12 @@ class OpenPickPlaceEnv(DirectRLEnv):
         self.arm_entity_cfg.resolve(self.scene)
         self.gripper_entity_cfg.resolve(self.scene)
 
-        self.arm_joint_idx = self.arm_entity_cfg.joint_ids[0]  # type: ignore
-        self.gripper_joint_idx = self.gripper_entity_cfg.joint_ids[0]  # type: ignore
+        self.arm_joint_idx = self.arm_entity_cfg.joint_ids  # type: ignore
+        self.gripper_joint_idx = self.gripper_entity_cfg.joint_ids  # type: ignore
 
         self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
-        self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
+        self.arm_offset = self._robot.data.default_joint_pos[:, self.arm_joint_idx].clone()
 
         self.gripper_open_command = self.robot_dof_upper_limits[self.gripper_joint_idx].clone()
         self.gripper_close_command = self.robot_dof_lower_limits[self.gripper_joint_idx].clone()
@@ -288,9 +287,7 @@ class OpenPickPlaceEnv(DirectRLEnv):
 
         # arm action
         arm_actions = self.actions[:, :7]
-        arm_targets = (
-            self.robot_dof_pos[:, :7] + self.robot_dof_speed_scales[:7] * self.dt * arm_actions * self.action_scales
-        )
+        arm_targets = self.arm_offset + self.cfg.action_scale * arm_actions
 
         # gripper action
         gripper_actions = self.actions[:, 7].clone().view(-1, 1).repeat(1, 2)
