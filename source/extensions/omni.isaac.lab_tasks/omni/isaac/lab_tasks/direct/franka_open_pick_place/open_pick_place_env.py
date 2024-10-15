@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 # import relative module
-import carb
-
 import torch
+
+import omni.log
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.sim import SimulationCfg
@@ -40,7 +40,7 @@ marker_cfg.prim_path = "/Visuals/FrameTransformer"
 @configclass
 class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
     # env
-    episode_length_s = 12  # 720 timesteps
+    episode_length_s = 5  # 720 timesteps
     decimation = 2
     num_actions = 8  # 7 joint actions & 1 binary actions
     num_observations = 46
@@ -101,7 +101,7 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
                 disable_gravity=False,
             ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, -0.3, 0.055), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, -0.3, 0.024), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # plate
@@ -146,7 +146,7 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
 
     # lid_frame
     lid_frame: FrameTransformerCfg = FrameTransformerCfg(
-        prim_path="/World/envs/env_.*/Lid/lid",
+        prim_path="/World/envs/env_.*/Robot/panda_link0",
         debug_vis=True,
         visualizer_cfg=marker_cfg,
         target_frames=[
@@ -165,14 +165,14 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
 
     # reward weight & threshold
     # weight
-    reaching_lid_reward_weight = 2.0
+    reaching_lid_reward_weight = 3.0
     reaching_cube_reward_weight = 3.0
     lid_lifted_reward_weight = 10.0
     lid_moving_reward_weight = 15.0
     cube_lifted_reward_weight = 10.0
     cube_moving_reward_weight = 15.0
-    eposide_length_penalty_weight = -0.1
-    action_penalty_weight = -1e-3
+    eposide_length_penalty_weight = -0.0001
+    action_penalty_weight = -0.001
 
     # bonus
     lid_lifted_bonus = 1.0
@@ -184,9 +184,9 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
     lid_lifted_height = 0.04
     cube_lifted_height = 0.04
     lid_moved_dist = 0.2
-    ee_lid_std = 0.1
-    ee_cube_std = 0.05
-    cube_plate_std = 0.05
+    ee_lid_std = 0.2
+    ee_cube_std = 0.2
+    cube_plate_std = 0.2
 
 
 class OpenPickPlaceEnv(DirectRLEnv):
@@ -225,7 +225,6 @@ class OpenPickPlaceEnv(DirectRLEnv):
 
         self.gripper_open_command = self.robot_dof_upper_limits[self.gripper_joint_idx].clone()
         self.gripper_close_command = self.robot_dof_lower_limits[self.gripper_joint_idx].clone()
-        print(self.gripper_open_command, self.gripper_close_command)
 
         # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
@@ -239,7 +238,7 @@ class OpenPickPlaceEnv(DirectRLEnv):
         # successes tracker
         self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
 
-        carb.log_info("*************** Task load complete ***************")
+        omni.log.info("*************** Task load complete ***************")
 
     def _setup_scene(self):
         # robot
@@ -357,8 +356,11 @@ class OpenPickPlaceEnv(DirectRLEnv):
             torch.cat((cube_pos + self.scene.env_origins[env_ids], cube_rot), dim=-1),
             env_ids=env_ids,  # type: ignore
         )
+
+        lid_pos, lid_rot = cube_pos.clone(), cube_rot.clone()
+        lid_pos[:, 2] = 0.0
         self._lid.write_root_pose_to_sim(
-            torch.cat((cube_pos + self.scene.env_origins[env_ids], cube_rot), dim=-1),
+            torch.cat((lid_pos + self.scene.env_origins[env_ids], lid_rot), dim=-1),
             env_ids=env_ids,  # type: ignore
         )
 
@@ -439,14 +441,14 @@ class OpenPickPlaceEnv(DirectRLEnv):
         self.lid_pos_b, self.lid_rot_b = subtract_frame_transforms(
             self._robot.data.root_pos_w,
             self._robot.data.root_quat_w,
-            self._cube.data.root_pos_w,
-            self._cube.data.root_quat_w,
+            self._lid.data.root_pos_w,
+            self._lid.data.root_quat_w,
         )
         self.plate_pos_b, _ = subtract_frame_transforms(
             self._robot.data.root_pos_w,
             self._robot.data.root_quat_w,
-            self._cube.data.root_pos_w,
-            self._cube.data.root_quat_w,
+            self._plate.data.root_pos_w,
+            self._plate.data.root_quat_w,
         )
         self.ee_pos_b, self.ee_rot_b = (
             self._ee_frame.data.target_pos_source[:, 0, :],
@@ -508,34 +510,47 @@ def compute_rewards(
     # stage1: approach to lid, lift lid, move lid
     # reaching reward
     ee_lid_dist = torch.norm(ee_pos_b - handle_pos_b, p=2, dim=-1)
+
     reaching_lid_reward = (
         (1 - torch.tanh(ee_lid_dist / ee_lid_std)) * lid_moved.logical_not() * reaching_lid_reward_weight
     )
+    # print("reaching_lid_reward:", reaching_lid_reward)
+
     # lift reward
     lid_lifted_reward = lid_lifted_bonus * lid_lifted * lid_moved.logical_not() * lid_lifted_reward_weight
+    # print("lid_lifted_reward:", lid_lifted_reward)
+
     # moving reward
     lid_cube_dist = torch.norm(cube_pos_b - lid_pos_b, p=2, dim=-1)
     lid_moveing_reward = (
         torch.tanh(10 * lid_cube_dist) * lid_lifted * lid_moved.logical_not() * lid_moving_reward_weight
     )
+    # print("lid_moveing_reward:", lid_moveing_reward)
 
     # stage2: approach to cube, lift cube, move cube
     # reaching reward
     ee_cube_dist = torch.norm(ee_pos_b - cube_pos_b, p=2, dim=-1)
     reaching_cube_reward = (1 - torch.tanh(ee_cube_dist / ee_cube_std)) * lid_moved * reaching_cube_reward_weight
+    # print("reaching_cube_reward:", reaching_cube_reward)
+
     # lift reward
     cube_lifted_reward = cube_lifted_bonus * lid_moved * cube_lifted * cube_lifted_reward_weight
+    # print("cube_lifted_reward:", cube_lifted_reward)
+
     # moving cube
     cube_plate_dist = torch.norm(cube_pos_b - plate_pos_b, p=2, dim=-1)
     cube_moving_reward = (
         (1 - torch.tanh(cube_plate_dist / cube_plate_std)) * lid_moved * cube_lifted * cube_moving_reward_weight
     )
+    # print("cube_moving_reward:", cube_moving_reward)
 
     # eposide_length 相关惩罚
     eposide_length_penalty = eposide_length_buf * eposide_length_penalty_weight
+    # print("eposide_length_penalty:", eposide_length_penalty)
 
     # action penalty
     action_penalty = torch.sum(actions**2, dim=-1) * action_penalty_weight
+    # print("action_penalty:", action_penalty)
 
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
     reward = (
