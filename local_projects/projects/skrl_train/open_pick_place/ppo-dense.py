@@ -19,18 +19,24 @@ set_seed()  # e.g. `set_seed(42)` for fixed seed
 
 # define shared model (stochastic and deterministic models) using mixins
 class Shared(GaussianMixin, DeterministicMixin, Model):
-    def __init__(self, observation_space, action_space, device, clip_actions=False,
-                 clip_log_std=True, min_log_std=-20, max_log_std=2, reduction="sum"):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        device,
+        clip_actions=False,
+        clip_log_std=True,
+        min_log_std=-20,
+        max_log_std=2,
+        reduction="sum",
+    ):
         Model.__init__(self, observation_space, action_space, device)
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 512),
-                                 nn.ELU(),
-                                 nn.Linear(512, 256),
-                                 nn.ELU(),
-                                 nn.Linear(256, 64),
-                                 nn.ELU())
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
+        )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
@@ -54,7 +60,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Open_Pick_Place-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-OpenPickPlace-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -101,14 +107,16 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 336
 cfg["experiment"]["checkpoint_interval"] = 3360
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Open_Pick_Place-Dense-v0-PPO"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO-dense"
 
-agent = PPO(models=models,
-            memory=memory,
-            cfg=cfg,
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            device=device)
+agent = PPO(
+    models=models,
+    memory=memory,
+    cfg=cfg,
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=device,
+)
 
 
 # configure and instantiate the RL trainer
