@@ -371,6 +371,8 @@ class OpenPickPlaceEnv(DirectRLEnv):
         # need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values()  # type: ignore
 
+        self.successes[env_ids] = 0
+
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
