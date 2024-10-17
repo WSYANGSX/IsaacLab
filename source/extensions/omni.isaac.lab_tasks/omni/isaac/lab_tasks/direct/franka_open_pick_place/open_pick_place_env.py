@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 # import relative module
-import h5py
-
 import torch
 
 import omni.isaac.lab.sim as sim_utils
@@ -171,7 +169,6 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
     lid_moving_reward_weight = 1.0
     cube_lifted_reward_weight = 1.0
     cube_moving_reward_weight = 5.0
-    eposide_length_penalty_weight = -0.0001
     action_penalty_weight = -0.001
 
     # bonus
@@ -417,7 +414,6 @@ class OpenPickPlaceEnv(DirectRLEnv):
             self.cfg.lid_moving_reward_weight,
             self.cfg.cube_lifted_reward_weight,
             self.cfg.cube_moving_reward_weight,
-            self.cfg.eposide_length_penalty_weight,
             self.cfg.action_penalty_weight,
             self.cfg.lid_lifted_bonus,
             self.cfg.cube_lifted_bonus,
@@ -498,7 +494,6 @@ def compute_rewards(
     lid_moving_reward_weight: float,
     cube_lifted_reward_weight: float,
     cube_moving_reward_weight: float,
-    eposide_length_penalty_weight: float,
     action_penalty_weight: float,
     lid_lifted_bonus: float,
     cube_lifted_bonus: float,
@@ -541,10 +536,6 @@ def compute_rewards(
     )
     # print("cube_moving_reward:", cube_moving_reward)
 
-    # eposide_length 相关惩罚
-    eposide_length_penalty = eposide_length_buf * eposide_length_penalty_weight
-    # print("eposide_length_penalty:", eposide_length_penalty)
-
     # action penalty
     action_penalty = torch.sum(actions**2, dim=-1) * action_penalty_weight
     # print("action_penalty:", action_penalty)
@@ -558,7 +549,6 @@ def compute_rewards(
         + reaching_cube_reward
         + cube_lifted_reward
         + cube_moving_reward
-        + eposide_length_penalty
         + action_penalty
     )  # reward的shape为(num_envs, )
 
