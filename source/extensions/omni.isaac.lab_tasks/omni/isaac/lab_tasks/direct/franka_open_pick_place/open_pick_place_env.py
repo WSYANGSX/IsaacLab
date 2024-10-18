@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # import relative module
-
 import torch
 
 import omni.isaac.lab.sim as sim_utils
@@ -164,12 +163,12 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
 
     # reward weight & threshold
     # weight
-    reaching_lid_reward_weight = 1.0
-    reaching_cube_reward_weight = 1.0
+    reaching_lid_reward_weight = 2.0
+    reaching_cube_reward_weight = 3.0
     lid_lifted_reward_weight = 1.0
     lid_moving_reward_weight = 1.0
-    cube_lifted_reward_weight = 1.0
-    cube_moving_reward_weight = 5.0
+    cube_lifted_reward_weight = 10.0
+    cube_moving_reward_weight = 15.0
     action_penalty_weight = -0.001
 
     # bonus
