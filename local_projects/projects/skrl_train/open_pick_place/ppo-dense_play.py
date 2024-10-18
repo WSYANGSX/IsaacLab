@@ -119,7 +119,7 @@ agent = PPO(
 )
 
 agent.load(
-    "/home/yangxf/my_projects/IsaacLab/runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO-dense/24-10-16_16-53-43-383414_PPO/checkpoints/agent_63840.pt"
+    "/home/yangxf/my_projects/IsaacLab/runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO-dense/24-10-17_16-14-57-639643_PPO/checkpoints/agent_63840.pt"
 )
 
 # configure and instantiate the RL trainer
