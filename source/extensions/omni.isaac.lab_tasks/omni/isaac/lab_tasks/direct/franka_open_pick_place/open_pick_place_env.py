@@ -2,6 +2,9 @@ from __future__ import annotations
 
 # import relative module
 import torch
+import numpy as np
+
+from gymnasium import spaces
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.sim import SimulationCfg
@@ -40,9 +43,9 @@ class OpenPickPlaceEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 5  # 720 timesteps
     decimation = 2
-    num_actions = 8  # 7 joint actions & 1 binary actions
-    num_observations = 46
-    num_states = 0
+    action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,))  # 7 joint actions & 1 binary actions
+    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(46,))
+    state_space = 0
     asymmetric_obs = False
 
     # simulation
@@ -206,6 +209,9 @@ class OpenPickPlaceEnv(DirectRLEnv):
 
         self.dt = self.cfg.sim.dt * self.cfg.decimation
 
+        self.actions_low = self.cfg.action_space.low[0]
+        self.actions_high = self.cfg.action_space.high[0]
+
         # robot propertities
         self.arm_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"])
         self.gripper_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_finger_joint.*"])
@@ -224,7 +230,7 @@ class OpenPickPlaceEnv(DirectRLEnv):
 
         # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
-        self.actions = torch.zeros((self.num_envs, self.cfg.num_actions), device=self.device)
+        self.actions = torch.zeros((self.num_envs, *self.cfg.action_space.shape), device=self.device)  # type: ignore
 
         # flags
         self.lid_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
@@ -280,7 +286,7 @@ class OpenPickPlaceEnv(DirectRLEnv):
 
     # pre-physics step calls
     def _pre_physics_step(self, actions: torch.Tensor):
-        self.actions = actions.clone().clamp(-1.0, 1.0)
+        self.actions = actions.clone().clamp(self.actions_low, self.actions_high)
 
         # arm action
         arm_actions = self.actions[:, :7]

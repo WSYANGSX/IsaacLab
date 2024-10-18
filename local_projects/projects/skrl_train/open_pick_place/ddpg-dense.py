@@ -60,7 +60,7 @@ class Critic(DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-OpenPickPlace-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
