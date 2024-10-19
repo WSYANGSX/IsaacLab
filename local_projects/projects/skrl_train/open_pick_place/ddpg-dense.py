@@ -54,9 +54,7 @@ class Critic(DeterministicMixin, Model):
         )
 
     def compute(self, inputs, role):
-        return self.net(
-            torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)
-        ), {}
+        return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
 
 
 # load and wrap the Isaac Lab environment
@@ -74,9 +72,7 @@ memory = RandomMemory(memory_size=15625, num_envs=env.num_envs, device=device)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#models
 models1 = {}
 models1["policy"] = DeterministicActor(env.observation_space, env.action_space, device)
-models1["target_policy"] = DeterministicActor(
-    env.observation_space, env.action_space, device
-)
+models1["target_policy"] = DeterministicActor(env.observation_space, env.action_space, device)
 models1["critic"] = Critic(env.observation_space, env.action_space, device)
 models1["target_critic"] = Critic(env.observation_space, env.action_space, device)
 
@@ -84,9 +80,7 @@ models1["target_critic"] = Critic(env.observation_space, env.action_space, devic
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#configuration-and-hyperparameters
 cfg = DDPG_DEFAULT_CONFIG.copy()
-cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(
-    theta=0.15, sigma=0.1, base_scale=0.5, device=device
-)
+cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.1, base_scale=0.5, device=device)
 cfg["gradient_steps"] = 1
 cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
