@@ -1,8 +1,3 @@
-# Copyright (c) 2022-2024, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
 from __future__ import annotations
 
 import torch
@@ -26,6 +21,8 @@ from omni.isaac.lab.terrains import TerrainImporterCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 from omni.isaac.lab.utils.math import sample_uniform
+
+from .subogal_planner import SubgoalPlanner
 
 
 @configclass
@@ -158,25 +155,22 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
         ),
     )
 
-    action_scale = 7.5
-    dof_velocity_scale = 0.1
-
     # reward scales
-    dist_reward_scale = 1.5
-    rot_reward_scale = 1.5
-    open_reward_scale = 10.0
-    action_penalty_scale = 0.05
-    finger_reward_scale = 2.0
+    subgoal_bonus = 50
+    task_complete_bonus = 100
 
 
 class GbagcFrankaCabinetEnv(DirectRLEnv):
+    # reset()
+    #   |-- _reset_index()                 reset all envs, _compute_intermediate_values
+    #   |-- _get_observations()
     # pre-physics step calls
     #   |-- _pre_physics_step(action)
     #   |-- _apply_action()
     # post-physics step calls
-    #   |-- _get_dones()
+    #   |-- _get_dones()                   _compute_intermediate_values
     #   |-- _get_rewards()
-    #   |-- _reset_idx(env_ids)
+    #   |-- _reset_idx(env_ids)            _compute_intermediate_values
     #   |-- _get_observations()
 
     cfg: GbagcFrankaCabinetEnvCfg
@@ -245,15 +239,6 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         self.drawer_local_grasp_pos = drawer_local_grasp_pose[0:3].repeat((self.num_envs, 1))
         self.drawer_local_grasp_rot = drawer_local_grasp_pose[3:7].repeat((self.num_envs, 1))
 
-        self.gripper_forward_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
-            (self.num_envs, 1)
-        )
-        self.drawer_inward_axis = torch.tensor([-1, 0, 0], device=self.device, dtype=torch.float32).repeat(
-            (self.num_envs, 1)
-        )
-        self.gripper_up_axis = torch.tensor([0, 1, 0], device=self.device, dtype=torch.float32).repeat(
-            (self.num_envs, 1)
-        )
         self.drawer_up_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
             (self.num_envs, 1)
         )
@@ -267,6 +252,19 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         self.robot_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
         self.drawer_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
         self.drawer_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
+
+        # subgoals relative
+        subgoals = {
+            "handle": [
+                [0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                [2, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+            ]
+        }
+        threshold = {"handle": [[0.01, 0], [0.01, 0], [0.05, 0.0]]}
+        self.subgoal_planner = SubgoalPlanner(
+            subgoals=subgoals, thresholds=threshold, num_envs=self.num_envs, device=self.device
+        )
 
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
@@ -323,11 +321,6 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             self.gripper_up_axis,
             self.drawer_up_axis,
             self.num_envs,
-            self.cfg.dist_reward_scale,
-            self.cfg.rot_reward_scale,
-            self.cfg.open_reward_scale,
-            self.cfg.action_penalty_scale,
-            self.cfg.finger_reward_scale,
             self._robot.data.joint_pos,
         )
 
@@ -351,6 +344,9 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
+
+        # Reset subgoal planner
+        self.subgoal_planner.reset(env_ids)
 
     def _get_observations(self) -> dict:
         dof_pos_scaled = (
