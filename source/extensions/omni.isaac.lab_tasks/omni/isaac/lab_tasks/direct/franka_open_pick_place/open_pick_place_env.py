@@ -269,6 +269,7 @@ class OpenPickPlaceEnv(DirectRLEnv):
         self.scene.sensors["ee_frame"] = self._ee_frame
         self.scene.sensors["lid_frame"] = self._lid_frame
 
+        # ground
         self._ground = self.cfg.ground.spawn.func(
             self.cfg.ground.prim_path,
             self.cfg.ground.spawn,

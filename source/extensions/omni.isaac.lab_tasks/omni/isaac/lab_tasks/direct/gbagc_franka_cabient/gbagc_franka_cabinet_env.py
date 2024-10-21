@@ -3,13 +3,7 @@ from __future__ import annotations
 import torch
 
 from gymnasium import spaces
-
-from omni.isaac.core.utils.stage import get_current_stage
-from omni.isaac.core.utils.torch.transformations import (
-    tf_combine,
-    tf_inverse,
-)
-from pxr import UsdGeom
+from typing import Literal
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.actuators.actuator_cfg import ImplicitActuatorCfg
@@ -21,8 +15,23 @@ from omni.isaac.lab.terrains import TerrainImporterCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 from omni.isaac.lab.utils.math import sample_uniform
+from omni.isaac.lab.sensors.frame_transformer import FrameTransformer, FrameTransformerCfg
+from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
+from omni.isaac.lab.managers import SceneEntityCfg
+from omni.isaac.lab.markers.visualization_markers import VisualizationMarkers, VisualizationMarkersCfg
+from local_projects.utils.math import rotation_distance
 
 from .subogal_planner import SubgoalPlanner
+from .ptp_model import PtpModel
+
+##
+# Pre-defined configs
+##
+from omni.isaac.lab.markers.config import FRAME_MARKER_CFG  # isort: skip
+
+# modify default config
+marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
+marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
 
 
 @configclass
@@ -155,9 +164,56 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
         ),
     )
 
+    # ee_frame
+    ee_frame: FrameTransformerCfg = FrameTransformerCfg(
+        prim_path="/World/envs/env_.*/Robot/panda_link0",
+        debug_vis=True,
+        visualizer_cfg=marker_cfg.replace(prim_path="/Visuals/EEFrameTransformer"),
+        target_frames=[
+            FrameTransformerCfg.FrameCfg(
+                prim_path="/World/envs/env_.*/Robot/panda_hand",
+                name="end_effector",
+                offset=OffsetCfg(
+                    pos=(0.0, 0.0, 0.1034),
+                ),
+            ),
+        ],
+    )
+
+    # lid_frame
+    handle_frame: FrameTransformerCfg = FrameTransformerCfg(
+        prim_path="/World/envs/env_.*/Cabinet/sektion",
+        debug_vis=True,
+        visualizer_cfg=marker_cfg.replace(prim_path="/Visuals/CabinetFrameTransformer"),
+        target_frames=[
+            FrameTransformerCfg.FrameCfg(
+                prim_path="/World/envs/env_.*/Cabinet/drawer_handle_top",
+                name="drawer_handle",
+                offset=OffsetCfg(
+                    pos=(0.305, 0.0, 0.01),
+                    rot=(0.5, 0.5, -0.5, -0.5),  # align with end-effector frame
+                ),
+            ),
+        ],
+    )
+
+    # subgoal Visualization
+    subgoal_visualization: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Subgoals",
+        markers={
+            "subgoals": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
+                scale=(0.1, 0.1, 0.1),
+            )
+        },
+    )
+
     # reward scales
-    subgoal_bonus = 50
-    task_complete_bonus = 100
+    subgoal_bonus = 50.0
+    task_complete_bonus = 100.0
+
+    # subgoal control mode
+    subgoal_control_mode: Literal["position", "pose"] = "position"  #
 
 
 class GbagcFrankaCabinetEnv(DirectRLEnv):
@@ -178,87 +234,38 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
     def __init__(self, cfg: GbagcFrankaCabinetEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        def get_env_local_pose(env_pos: torch.Tensor, xformable: UsdGeom.Xformable, device: torch.device):
-            """Compute pose in env-local coordinates"""
-            world_transform = xformable.ComputeLocalToWorldTransform(0)
-            world_pos = world_transform.ExtractTranslation()
-            world_quat = world_transform.ExtractRotationQuat()
-
-            px = world_pos[0] - env_pos[0]
-            py = world_pos[1] - env_pos[1]
-            pz = world_pos[2] - env_pos[2]
-            qx = world_quat.imaginary[0]
-            qy = world_quat.imaginary[1]
-            qz = world_quat.imaginary[2]
-            qw = world_quat.real
-
-            return torch.tensor([px, py, pz, qw, qx, qy, qz], device=device)
-
         self.dt = self.cfg.sim.dt * self.cfg.decimation
+        self.subgoal_control_mode = self.cfg.subgoal_control_mode
 
-        # create auxiliary variables for computing applied action, observations and rewards
+        # robot relative propertities
+        self.arm_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"])
+        self.gripper_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_finger_joint.*"])
+        self.arm_entity_cfg.resolve(self.scene)
+        self.gripper_entity_cfg.resolve(self.scene)
+
+        self.arm_joint_idx = self.arm_entity_cfg.joint_ids  # type: ignore
+        self.gripper_joint_idx = self.gripper_entity_cfg.joint_ids  # type: ignore
+
         self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
+        self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits[:7])
 
-        self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
-        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.1
-        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.1
+        self.gripper_open_command = self.robot_dof_upper_limits[self.gripper_joint_idx].clone()
+        self.gripper_close_command = self.robot_dof_lower_limits[self.gripper_joint_idx].clone()
 
+        # cabinet
+        self.drawer_joint_idx = self._cabinet.find_joints("drawer_handle_top_joint")[0][0]
+
+        # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
-
-        stage = get_current_stage()
-        hand_pose = get_env_local_pose(
-            self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
-            self.device,
-        )
-        lfinger_pose = get_env_local_pose(
-            self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_leftfinger")),
-            self.device,
-        )
-        rfinger_pose = get_env_local_pose(
-            self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_rightfinger")),
-            self.device,
-        )
-
-        finger_pose = torch.zeros(7, device=self.device)
-        finger_pose[0:3] = (lfinger_pose[0:3] + rfinger_pose[0:3]) / 2.0
-        finger_pose[3:7] = lfinger_pose[3:7]
-        hand_pose_inv_rot, hand_pose_inv_pos = tf_inverse(hand_pose[3:7], hand_pose[0:3])
-
-        robot_local_grasp_pose_rot, robot_local_pose_pos = tf_combine(
-            hand_pose_inv_rot, hand_pose_inv_pos, finger_pose[3:7], finger_pose[0:3]
-        )
-        robot_local_pose_pos += torch.tensor([0, 0.04, 0], device=self.device)
-        self.robot_local_grasp_pos = robot_local_pose_pos.repeat((self.num_envs, 1))
-        self.robot_local_grasp_rot = robot_local_grasp_pose_rot.repeat((self.num_envs, 1))
-
-        drawer_local_grasp_pose = torch.tensor([0.3, 0.01, 0.0, 1.0, 0.0, 0.0, 0.0], device=self.device)
-        self.drawer_local_grasp_pos = drawer_local_grasp_pose[0:3].repeat((self.num_envs, 1))
-        self.drawer_local_grasp_rot = drawer_local_grasp_pose[3:7].repeat((self.num_envs, 1))
-
-        self.drawer_up_axis = torch.tensor([0, 0, 1], device=self.device, dtype=torch.float32).repeat(
-            (self.num_envs, 1)
-        )
-
-        self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
-        self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
-        self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
-        self.drawer_link_idx = self._cabinet.find_bodies("drawer_top")[0][0]
-
-        self.robot_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
-        self.robot_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
-        self.drawer_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
-        self.drawer_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
+        self.actions = torch.zeros((self.num_envs, *self.cfg.action_space.shape), device=self.device)  # type: ignore
 
         # subgoals relative
         subgoals = {
             "handle": [
                 [0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-                [2, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                [0.4, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
             ]
         }
         threshold = {"handle": [[0.01, 0], [0.01, 0], [0.05, 0.0]]}
@@ -266,15 +273,40 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             subgoals=subgoals, thresholds=threshold, num_envs=self.num_envs, device=self.device
         )
 
+        # low-level model
+        policy_path = (
+            "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/2024-09-08_23-16-09/"
+        )
+        self.ptp_model = PtpModel(policy_path)
+        self.ptp_model.reset()
+
+        self.action_scale = torch.tensor(
+            self.ptp_model.env_cfg["action_scale"],  # type: ignore
+            device=self.device,
+        )
+
+        # subgoal visualization
+        self.subgoal_visualization = VisualizationMarkers(self.cfg.subgoal_visualization)
+
     def _setup_scene(self):
+        # robot
         self._robot = Articulation(self.cfg.robot)
-        self._cabinet = Articulation(self.cfg.cabinet)
         self.scene.articulations["robot"] = self._robot
+
+        # cabient
+        self._cabinet = Articulation(self.cfg.cabinet)
         self.scene.articulations["cabinet"] = self._cabinet
 
+        # ground
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
+
+        # ee_frame & lid_frame
+        self._ee_frame = FrameTransformer(self.cfg.ee_frame)
+        self._handle_frame = FrameTransformer(self.cfg.handle_frame)
+        self.scene.sensors["ee_frame"] = self._ee_frame
+        self.scene.sensors["handle_frame"] = self._handle_frame
 
         # clone, filter, and replicate
         self.scene.clone_environments(copy_from_source=False)
@@ -287,9 +319,29 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
     # pre-physics step calls
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        self.actions = actions.clone().clamp(-1.0, 1.0)
-        targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
-        self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        self.actions = actions.clone().clamp(self.cfg.action_space.low[0], self.cfg.action_space.high[0])
+
+        arm_actions = torch.where(
+            self.actions[:, 0] >= 0, torch.ones_like(self.actions[:, 0]), torch.zeros_like(self.actions[:, 0])
+        )
+
+        ll_obs = self._get_low_level_observations()
+        if self.ptp_model.has_batch_dimension is False:
+            self.ptp_model.get_batch_size(ll_obs)
+        low_level_actions = self.ptp_model.get_action(ll_obs)
+
+        arm_targets = (
+            self._robot.data.joint_pos[:, :7]
+            + (self.robot_dof_speed_scales[self.arm_joint_idx] * self.dt * low_level_actions * self.action_scale)
+            * arm_actions
+        )
+
+        gripper_actions = self.actions[:, 1].clone().view(-1, 1).repeat(1, 2)
+        gripper_targets = torch.where(gripper_actions >= 0, self.gripper_open_command, self.gripper_close_command)
+
+        self.robot_dof_targets = torch.clamp(
+            torch.cat((arm_targets, gripper_targets), dim=-1), self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self.robot_dof_targets)
@@ -297,31 +349,22 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
     # post-physics step calls
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        # Refresh the intermediate values after the physics steps
+        self._compute_intermediate_values()
+
         terminated = self._cabinet.data.joint_pos[:, 3] > 0.39
         truncated = self.episode_length_buf >= self.max_episode_length - 1
         return terminated, truncated
 
     def _get_rewards(self) -> torch.Tensor:
-        # Refresh the intermediate values after the physics steps
-        self._compute_intermediate_values()
-        robot_left_finger_pos = self._robot.data.body_pos_w[:, self.left_finger_link_idx]
-        robot_right_finger_pos = self._robot.data.body_pos_w[:, self.right_finger_link_idx]
-
         return self._compute_rewards(
-            self.actions,
-            self._cabinet.data.joint_pos,
-            self.robot_grasp_pos,
-            self.drawer_grasp_pos,
-            self.robot_grasp_rot,
-            self.drawer_grasp_rot,
-            robot_left_finger_pos,
-            robot_right_finger_pos,
-            self.gripper_forward_axis,
-            self.drawer_inward_axis,
-            self.gripper_up_axis,
-            self.drawer_up_axis,
+            self.subgoals_dist,
+            self.subgoals_rot_dist,
+            self.threshold,
+            self.drawer_dof_pos,
+            self.cfg.subgoal_bonus,
+            self.cfg.task_complete_bonus,
             self.num_envs,
-            self._robot.data.joint_pos,
         )
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
@@ -342,164 +385,99 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         zeros = torch.zeros((len(env_ids), self._cabinet.num_joints), device=self.device)
         self._cabinet.write_joint_state_to_sim(zeros, zeros, env_ids=env_ids)
 
+        # compute physx data
+        self.sim.step(render=False)
+        self.scene.update(self.cfg.sim.dt)
+
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
-        self._compute_intermediate_values(env_ids)
+        self._compute_intermediate_values()
 
         # Reset subgoal planner
-        self.subgoal_planner.reset(env_ids)
+        self.subgoal_planner.reset(
+            objects_pose={"handle": torch.cat((self.handle_pos_b, self.handle_rot_b), dim=-1)}, env_ids=env_ids
+        )
+
+    def _get_low_level_observations(self) -> dict:
+        ll_obs = torch.cat(
+            (
+                self.ee_pos_b,
+                self.ee_rot_b,
+                self.subgoal_pos,
+                self.subgoal_rot,
+                torch.norm(self.subgoal_pos - self.ee_pos_b, p=2, dim=-1),
+                rotation_distance(self.ee_rot_b, self.subgoal_rot),
+                self.robot_dof_pos[:, self.arm_joint_idx],
+            )
+        )
+        return {"ll_obs": torch.clamp(ll_obs, -5.0, 5.0)}
 
     def _get_observations(self) -> dict:
-        dof_pos_scaled = (
-            2.0
-            * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
-            / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
-            - 1.0
-        )
-        to_target = self.drawer_grasp_pos - self.robot_grasp_pos
-
         obs = torch.cat(
             (
-                dof_pos_scaled,
-                self._robot.data.joint_vel * self.cfg.dof_velocity_scale,
-                to_target,
-                self._cabinet.data.joint_pos[:, 3].unsqueeze(-1),
-                self._cabinet.data.joint_vel[:, 3].unsqueeze(-1),
+                self.robot_dof_pos,
+                self.robot_dof_vel,
+                self.drawer_dof_pos.unsqueeze(-1),
+                self.drawer_dof_vel.unsqueeze(-1),
+                self.subgoals_dist,
+                self.subgoals_rot_dist,
             ),
             dim=-1,
+        )
+
+        include_quat = True if self.subgoal_control_mode == "pose" else False
+        self.subgoal_planner.step(
+            curr_ee_pose=torch.cat((self.ee_pos_b, self.ee_rot_b), dim=-1), include_quat=include_quat
         )
         return {"policy": torch.clamp(obs, -5.0, 5.0)}
 
     # auxiliary methods
 
-    def _compute_intermediate_values(self, env_ids: torch.Tensor | None = None):
-        if env_ids is None:
-            env_ids = self._robot._ALL_INDICES
+    def _compute_intermediate_values(self):
+        self.robot_dof_pos = self._robot.data.joint_pos
+        self.robot_dof_vel = self._robot.data.joint_vel
 
-        hand_pos = self._robot.data.body_pos_w[env_ids, self.hand_link_idx]
-        hand_rot = self._robot.data.body_quat_w[env_ids, self.hand_link_idx]
-        drawer_pos = self._cabinet.data.body_pos_w[env_ids, self.drawer_link_idx]
-        drawer_rot = self._cabinet.data.body_quat_w[env_ids, self.drawer_link_idx]
-        (
-            self.robot_grasp_rot[env_ids],
-            self.robot_grasp_pos[env_ids],
-            self.drawer_grasp_rot[env_ids],
-            self.drawer_grasp_pos[env_ids],
-        ) = self._compute_grasp_transforms(
-            hand_rot,
-            hand_pos,
-            self.robot_local_grasp_rot[env_ids],
-            self.robot_local_grasp_pos[env_ids],
-            drawer_rot,
-            drawer_pos,
-            self.drawer_local_grasp_rot[env_ids],
-            self.drawer_local_grasp_pos[env_ids],
+        self.drawer_dof_pos = self._cabinet.data.joint_pos[:, self.drawer_joint_idx]
+        self.drawer_dof_vel = self._cabinet.data.joint_vel[:, self.drawer_joint_idx]
+
+        self.ee_pos_b, self.ee_rot_b = (
+            self._ee_frame.data.target_pos_source[:, 0, :],
+            self._ee_frame.data.target_quat_source[:, 0, :],
         )
+        self.handle_pos_b, self.handle_rot_b = (
+            self._handle_frame.data.target_pos_source[:, 0, :],
+            self._handle_frame.data.target_quat_source[:, 0, :],
+        )
+
+        self.subgoal_pos = self.subgoal_planner.current_subgoals[:, :3]
+        self.subgoal_rot = self.subgoal_planner.current_subgoals[:, 3:7]
+        self.threshold = self.subgoal_planner.current_thresholds
+        self.subgoals_dist = torch.norm(self.subgoal_pos - self.ee_pos_b, p=2, dim=-1)
+        self.subgoals_rot_dist = rotation_distance(self.ee_rot_b, self.subgoal_rot)
 
     def _compute_rewards(
         self,
-        actions,
-        cabinet_dof_pos,
-        franka_grasp_pos,
-        drawer_grasp_pos,
-        franka_grasp_rot,
-        drawer_grasp_rot,
-        franka_lfinger_pos,
-        franka_rfinger_pos,
-        gripper_forward_axis,
-        drawer_inward_axis,
-        gripper_up_axis,
-        drawer_up_axis,
-        num_envs,
-        dist_reward_scale,
-        rot_reward_scale,
-        open_reward_scale,
-        action_penalty_scale,
-        finger_reward_scale,
-        joint_positions,
+        subgoal_dist: torch.Tensor,
+        subgoal_rot_dist: torch.Tensor,
+        threshold: torch.Tensor,
+        drawer_dof_pos: torch.Tensor,
+        subgoal_bonus: float,
+        task_complete_bonus: float,
+        num_envs: int,
     ):
-        # # dense reward
-        # # distance from hand to the drawer
-        # d = torch.norm(franka_grasp_pos - drawer_grasp_pos, p=2, dim=-1)
-        # dist_reward = 1.0 / (1.0 + d**2)
-        # dist_reward *= dist_reward
-        # dist_reward = torch.where(d <= 0.02, dist_reward * 2, dist_reward)
-
-        # axis1 = tf_vector(franka_grasp_rot, gripper_forward_axis)
-        # axis2 = tf_vector(drawer_grasp_rot, drawer_inward_axis)
-        # axis3 = tf_vector(franka_grasp_rot, gripper_up_axis)
-        # axis4 = tf_vector(drawer_grasp_rot, drawer_up_axis)
-
-        # dot1 = (
-        #     torch.bmm(axis1.view(num_envs, 1, 3), axis2.view(num_envs, 3, 1)).squeeze(-1).squeeze(-1)
-        # )  # alignment of forward axis for gripper
-        # dot2 = (
-        #     torch.bmm(axis3.view(num_envs, 1, 3), axis4.view(num_envs, 3, 1)).squeeze(-1).squeeze(-1)
-        # )  # alignment of up axis for gripper
-        # # reward for matching the orientation of the hand to the drawer (fingers wrapped)
-        # rot_reward = 0.5 * (torch.sign(dot1) * dot1**2 + torch.sign(dot2) * dot2**2)
-
-        # # regularization on the actions (summed for each environment)
-        # action_penalty = torch.sum(actions**2, dim=-1)
-
-        # # how far the cabinet has been opened out
-        # open_reward = cabinet_dof_pos[:, 3]  # drawer_top_joint
-
-        # # penalty for distance of each finger from the drawer handle
-        # lfinger_dist = franka_lfinger_pos[:, 2] - drawer_grasp_pos[:, 2]
-        # rfinger_dist = drawer_grasp_pos[:, 2] - franka_rfinger_pos[:, 2]
-        # finger_dist_penalty = torch.zeros_like(lfinger_dist)
-        # finger_dist_penalty += torch.where(lfinger_dist < 0, lfinger_dist, torch.zeros_like(lfinger_dist))
-        # finger_dist_penalty += torch.where(rfinger_dist < 0, rfinger_dist, torch.zeros_like(rfinger_dist))
-
-        # rewards = (
-        #     dist_reward_scale * dist_reward
-        #     + rot_reward_scale * rot_reward
-        #     + open_reward_scale * open_reward
-        #     + finger_reward_scale * finger_dist_penalty
-        #     - action_penalty_scale * action_penalty
-        # )
-
-        # self.extras["log"] = {
-        #     "dist_reward": (dist_reward_scale * dist_reward).mean(),
-        #     "rot_reward": (rot_reward_scale * rot_reward).mean(),
-        #     "open_reward": (open_reward_scale * open_reward).mean(),
-        #     "action_penalty": (-action_penalty_scale * action_penalty).mean(),
-        #     "left_finger_distance_reward": (finger_reward_scale * lfinger_dist).mean(),
-        #     "right_finger_distance_reward": (finger_reward_scale * rfinger_dist).mean(),
-        #     "finger_dist_penalty": (finger_reward_scale * finger_dist_penalty).mean(),
-        # }
-
         # sparse reward
         rewards = torch.zeros((num_envs,), device=self.device, dtype=torch.float32)
 
-        # bonus for opening drawer properly
-        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.01, rewards + 0.25, rewards)
-        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.2, rewards + 0.25, rewards)
-        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.35, rewards + 0.25, rewards)
+        # bonus for reaching subgoal
+        if self.subgoal_control_mode == "pose":
+            rewards = torch.where(
+                (subgoal_dist <= threshold[:, 0]) & (subgoal_rot_dist <= threshold[:, 1]),
+                rewards + subgoal_bonus,
+                rewards,
+            )
+        else:
+            rewards = torch.where(subgoal_dist <= threshold[:, 0], rewards + subgoal_bonus, rewards)
+
+        # bonus for opening drawer
+        rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
 
         return rewards
-
-    def _compute_grasp_transforms(
-        self,
-        hand_rot,
-        hand_pos,
-        franka_local_grasp_rot,
-        franka_local_grasp_pos,
-        drawer_rot,
-        drawer_pos,
-        drawer_local_grasp_rot,
-        drawer_local_grasp_pos,
-    ):
-        global_franka_rot, global_franka_pos = tf_combine(
-            hand_rot, hand_pos, franka_local_grasp_rot, franka_local_grasp_pos
-        )
-        global_drawer_rot, global_drawer_pos = tf_combine(
-            drawer_rot, drawer_pos, drawer_local_grasp_rot, drawer_local_grasp_pos
-        )
-
-        return (
-            global_franka_rot,
-            global_franka_pos,
-            global_drawer_rot,
-            global_drawer_pos,
-        )

@@ -52,6 +52,14 @@ class SubgoalPlanner:
     def shape(self) -> torch.Size:
         return self.subgoals_and_thresholds.shape
 
+    @property
+    def current_subgoals(self) -> torch.Tensor:
+        return self.curr_subgoals_and_thresholds[:, :7]
+
+    @property
+    def current_thresholds(self) -> torch.Tensor:
+        return self.curr_subgoals_and_thresholds[:, 7:9]
+
     def __len__(self) -> int:
         return self.num_envs
 

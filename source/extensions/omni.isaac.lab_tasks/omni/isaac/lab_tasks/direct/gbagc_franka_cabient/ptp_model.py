@@ -21,7 +21,7 @@ def rescale_actions(low, high, action):
     return scaled_action
 
 
-class PrtprModel(object):
+class PtpModel(object):
     """Warpper class for rl_game BasePlayer."""
 
     def __init__(self, policy_path: str) -> None:
@@ -219,7 +219,7 @@ class PrtprModel(object):
 
 
 if __name__ == "__main__":
-    prtpr = PrtprModel("/home/yangxf/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/")
+    prtpr = PtpModel("/home/yangxf/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/")
     prtpr.reset()
 
     obs = torch.randn((19, 19), device="cuda:0", dtype=torch.float32)
