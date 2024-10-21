@@ -69,6 +69,9 @@ class PtpModel(object):
         self.actions_low = torch.from_numpy(self.action_space.low.copy()).float().to(self.device)
         self.actions_high = torch.from_numpy(self.action_space.high.copy()).float().to(self.device)
 
+        self.obs_low = torch.from_numpy(self.observation_space.low.copy()).float().to(self.device)
+        self.obs_high = torch.from_numpy(self.observation_space.high.copy()).float().to(self.device)
+        
         self.obs_shape = self.observation_space.shape
 
         # loab networks

@@ -1,4 +1,4 @@
-from gymnasium import spaces
+import torch
 
-a = spaces.Box(low=-1.0, high=1.0, shape=(8,))
-print(a.low, a.high, a.shape)
+a = torch.tensor([1, 2, 3, 4])
+print(a.unsqueeze(-1))

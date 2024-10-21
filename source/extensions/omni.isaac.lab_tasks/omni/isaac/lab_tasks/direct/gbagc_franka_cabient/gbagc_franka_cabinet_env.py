@@ -40,7 +40,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 2
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,))
-    observation_space = spaces.Box(low=-torch.inf, high=torch.inf, shape=(23,))
+    observation_space = spaces.Box(low=-torch.inf, high=torch.inf, shape=(22,))
     state_space = 0
 
     # simulation
@@ -61,19 +61,20 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
     # robot
-    robot = ArticulationCfg(
+    robot: ArticulationCfg = ArticulationCfg(
         prim_path="/World/envs/env_.*/Robot",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/Franka/franka_instanceable.usd",
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False,
+                disable_gravity=True,
                 max_depenetration_velocity=5.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 enabled_self_collisions=False,
                 solver_position_iteration_count=12,
                 solver_velocity_iteration_count=1,
+                fix_root_link=True,
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -87,8 +88,6 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
                 "panda_joint7": 0.469,
                 "panda_finger_joint.*": 0.035,
             },
-            pos=(1.0, 0.0, 0.0),
-            rot=(0.0, 0.0, 0.0, 1.0),
         ),
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
@@ -123,8 +122,8 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
             activate_contact_sensors=False,
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, 0, 0.4),
-            rot=(0.1, 0.0, 0.0, 0.0),
+            pos=(1.0, 0.0, 0.4),
+            rot=(0.0, 0.0, 0.0, 1.0),
             joint_pos={
                 "door_left_joint": 0.0,
                 "door_right_joint": 0.0,
@@ -254,7 +253,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         self.gripper_close_command = self.robot_dof_lower_limits[self.gripper_joint_idx].clone()
 
         # cabinet
-        self.drawer_joint_idx = self._cabinet.find_joints("drawer_handle_top_joint")[0][0]
+        self.drawer_joint_idx = self._cabinet.find_joints("drawer_top_joint")[0][0]
 
         # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
@@ -321,18 +320,17 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions.clone().clamp(self.cfg.action_space.low[0], self.cfg.action_space.high[0])
 
-        arm_actions = torch.where(
-            self.actions[:, 0] >= 0, torch.ones_like(self.actions[:, 0]), torch.zeros_like(self.actions[:, 0])
-        )
+        arm_actions = self.actions[:, 0].clone().view(-1, 1)
+        arm_actions = torch.where(arm_actions >= 0, torch.ones_like(arm_actions), torch.zeros_like(arm_actions))
 
         ll_obs = self._get_low_level_observations()
         if self.ptp_model.has_batch_dimension is False:
-            self.ptp_model.get_batch_size(ll_obs)
-        low_level_actions = self.ptp_model.get_action(ll_obs)
+            self.ptp_model.get_batch_size(ll_obs["ll_obs"])
+        low_level_actions = self.ptp_model.get_action(ll_obs["ll_obs"])
 
         arm_targets = (
-            self._robot.data.joint_pos[:, :7]
-            + (self.robot_dof_speed_scales[self.arm_joint_idx] * self.dt * low_level_actions * self.action_scale)
+            self._robot.data.joint_pos[:, self.arm_joint_idx]
+            + (self.robot_dof_speed_scales[: len(self.arm_joint_idx)] * self.dt * low_level_actions * self.action_scale)
             * arm_actions
         )
 
@@ -404,12 +402,13 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
                 self.ee_rot_b,
                 self.subgoal_pos,
                 self.subgoal_rot,
-                torch.norm(self.subgoal_pos - self.ee_pos_b, p=2, dim=-1),
-                rotation_distance(self.ee_rot_b, self.subgoal_rot),
+                torch.norm(self.subgoal_pos - self.ee_pos_b, p=2, dim=-1).unsqueeze(-1),
+                rotation_distance(self.ee_rot_b, self.subgoal_rot).unsqueeze(-1),
                 self.robot_dof_pos[:, self.arm_joint_idx],
-            )
+            ),
+            dim=-1,
         )
-        return {"ll_obs": torch.clamp(ll_obs, -5.0, 5.0)}
+        return {"ll_obs": torch.clamp(ll_obs, self.ptp_model.obs_low, self.ptp_model.obs_high)}
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
@@ -418,16 +417,12 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
                 self.robot_dof_vel,
                 self.drawer_dof_pos.unsqueeze(-1),
                 self.drawer_dof_vel.unsqueeze(-1),
-                self.subgoals_dist,
-                self.subgoals_rot_dist,
+                self.subgoals_dist.unsqueeze(-1),
+                self.subgoals_rot_dist.unsqueeze(-1),
             ),
             dim=-1,
         )
 
-        include_quat = True if self.subgoal_control_mode == "pose" else False
-        self.subgoal_planner.step(
-            curr_ee_pose=torch.cat((self.ee_pos_b, self.ee_rot_b), dim=-1), include_quat=include_quat
-        )
         return {"policy": torch.clamp(obs, -5.0, 5.0)}
 
     # auxiliary methods
@@ -448,11 +443,18 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             self._handle_frame.data.target_quat_source[:, 0, :],
         )
 
+        include_quat = True if self.subgoal_control_mode == "pose" else False
+        self.subgoal_planner.step(
+            curr_ee_pose=torch.cat((self.ee_pos_b, self.ee_rot_b), dim=-1), include_quat=include_quat
+        )
+
         self.subgoal_pos = self.subgoal_planner.current_subgoals[:, :3]
         self.subgoal_rot = self.subgoal_planner.current_subgoals[:, 3:7]
         self.threshold = self.subgoal_planner.current_thresholds
         self.subgoals_dist = torch.norm(self.subgoal_pos - self.ee_pos_b, p=2, dim=-1)
         self.subgoals_rot_dist = rotation_distance(self.ee_rot_b, self.subgoal_rot)
+
+        self.subgoal_visualization.visualize(self.subgoal_pos + self.scene.env_origins, self.subgoal_rot)
 
     def _compute_rewards(
         self,
