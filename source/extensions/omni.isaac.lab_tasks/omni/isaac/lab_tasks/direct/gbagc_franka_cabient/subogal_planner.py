@@ -71,7 +71,7 @@ class SubgoalPlanner:
             env_ids = torch.arange(self.num_envs)
 
         """compute subgoal pose by current object pose"""
-        subgoals = compute_subgoals(objects_pose, self.single_subgoals, env_ids)
+        subgoals = compute_subgoals(objects_pose, self.single_subgoals)
 
         # thresholds
         thresholds = (
@@ -79,7 +79,7 @@ class SubgoalPlanner:
         )
         self.subgoals_and_thresholds[env_ids] = torch.cat((subgoals, thresholds), dim=-1)
 
-        self.subgoals_indices[env_ids] = torch.zeros(len(env_ids), device=self.device, dtype=torch.int8)
+        self.subgoals_indices[env_ids] = 0
         sample_indices = torch.tensor(
             [
                 self.subgoals_indices[i] + i * sum(self.single_subgoals_length)
@@ -126,12 +126,12 @@ class SubgoalPlanner:
 
 
 def compute_subgoals(
-    objects_pose: Mapping[str, torch.Tensor], single_subgoals: Mapping[str, torch.Tensor], env_ids: torch.Tensor
+    objects_pose: Mapping[str, torch.Tensor], single_subgoals: Mapping[str, torch.Tensor]
 ) -> torch.Tensor:
     # subgoals
     subgoals_dict = defaultdict(list)
     for key, val in single_subgoals.items():
-        object_pose = objects_pose[key][env_ids]
+        object_pose = objects_pose[key]
         for i in range(len(val)):
             subgoals_dict[key].append(
                 torch.cat(

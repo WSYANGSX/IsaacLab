@@ -181,7 +181,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
 
     # lid_frame
     handle_frame: FrameTransformerCfg = FrameTransformerCfg(
-        prim_path="/World/envs/env_.*/Cabinet/sektion",
+        prim_path="/World/envs/env_.*/Robot/panda_link0",
         debug_vis=True,
         visualizer_cfg=marker_cfg.replace(prim_path="/Visuals/CabinetFrameTransformer"),
         target_frames=[
@@ -209,7 +209,8 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
 
     # reward scales
     subgoal_bonus = 50.0
-    task_complete_bonus = 100.0
+    handle_grasped_bonus = 80.0
+    task_complete_bonus = 200.0
 
     # subgoal control mode
     subgoal_control_mode: Literal["position", "pose"] = "position"  #
@@ -262,9 +263,9 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         # subgoals relative
         subgoals = {
             "handle": [
-                [0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, -0.05, 1.0, 0.0, 0.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-                [0.4, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, -0.41, 1.0, 0.0, 0.0, 0.0],
             ]
         }
         threshold = {"handle": [[0.01, 0], [0.01, 0], [0.05, 0.0]]}
@@ -362,6 +363,11 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             self.drawer_dof_pos,
             self.cfg.subgoal_bonus,
             self.cfg.task_complete_bonus,
+            self.ee_pos_b,
+            self.handle_pos_b,
+            self.robot_dof_pos[:, 8],
+            self.robot_dof_pos[:, 9],
+            self.cfg.handle_grasped_bonus,
             self.num_envs,
         )
 
@@ -392,7 +398,8 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         # Reset subgoal planner
         self.subgoal_planner.reset(
-            objects_pose={"handle": torch.cat((self.handle_pos_b, self.handle_rot_b), dim=-1)}, env_ids=env_ids
+            objects_pose={"handle": torch.cat((self.handle_pos_b[env_ids], self.handle_rot_b[env_ids]), dim=-1)},
+            env_ids=env_ids,
         )
 
     def _get_low_level_observations(self) -> dict:
@@ -464,6 +471,11 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         drawer_dof_pos: torch.Tensor,
         subgoal_bonus: float,
         task_complete_bonus: float,
+        ee_pos: torch.Tensor,
+        handle_pos: torch.Tensor,
+        lift_finger_dof_pos: torch.Tensor,
+        right_finger_dof_pos: torch.Tensor,
+        handle_grasped_bonus: float,
         num_envs: int,
     ):
         # sparse reward
@@ -478,6 +490,12 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             )
         else:
             rewards = torch.where(subgoal_dist <= threshold[:, 0], rewards + subgoal_bonus, rewards)
+
+        # bonus for grasping handle
+        handle_grasped = (torch.norm(ee_pos - handle_pos, dim=-1, p=2) <= 0.008) & (
+            (lift_finger_dof_pos + right_finger_dof_pos) <= 0.01
+        )
+        rewards += torch.where(handle_grasped, rewards + handle_grasped_bonus, rewards)
 
         # bonus for opening drawer
         rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
