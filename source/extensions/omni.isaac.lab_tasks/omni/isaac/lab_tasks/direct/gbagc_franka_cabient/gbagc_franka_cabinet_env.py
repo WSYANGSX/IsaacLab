@@ -41,7 +41,7 @@ marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
 class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 8.3333  # 500 timesteps
-    decimation = 4
+    decimation = 2
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,))
     observation_space = spaces.Box(low=-torch.inf, high=torch.inf, shape=(22,))
     state_space = 0
