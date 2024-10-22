@@ -29,6 +29,9 @@ from .ptp_model import PtpModel
 ##
 from omni.isaac.lab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
+# set print style
+torch.set_printoptions(threshold="full")
+
 # modify default config
 marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
 marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
@@ -189,7 +192,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
                 prim_path="/World/envs/env_.*/Cabinet/drawer_handle_top",
                 name="drawer_handle",
                 offset=OffsetCfg(
-                    pos=(0.305, 0.0, 0.01),
+                    pos=(0.29, 0.0, 0.01),
                     rot=(0.5, 0.5, -0.5, -0.5),  # align with end-effector frame
                 ),
             ),
@@ -365,8 +368,8 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             self.cfg.task_complete_bonus,
             self.ee_pos_b,
             self.handle_pos_b,
+            self.robot_dof_pos[:, 7],
             self.robot_dof_pos[:, 8],
-            self.robot_dof_pos[:, 9],
             self.cfg.handle_grasped_bonus,
             self.num_envs,
         )
@@ -493,7 +496,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         # bonus for grasping handle
         handle_grasped = (torch.norm(ee_pos - handle_pos, dim=-1, p=2) <= 0.008) & (
-            (lift_finger_dof_pos + right_finger_dof_pos) <= 0.01
+            (lift_finger_dof_pos + right_finger_dof_pos) <= 0.005
         )
         rewards += torch.where(handle_grasped, rewards + handle_grasped_bonus, rewards)
 

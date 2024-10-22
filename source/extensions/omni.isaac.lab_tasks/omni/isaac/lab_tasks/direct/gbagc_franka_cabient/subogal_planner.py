@@ -25,13 +25,17 @@ class SubgoalPlanner:
         self.single_subgoals = dict()
         for key, val in subgoals.items():
             self.single_subgoals[key] = (
-                torch.tensor(val, device=self.device) if type(val) is not torch.Tensor else val.to(self.device)
+                torch.tensor(val, device=self.device, dtype=torch.float32)
+                if type(val) is not torch.Tensor
+                else val.to(self.device).to(torch.float32)
             )
 
         self.subgoal_thresholds = dict()
         for key, val in thresholds.items():
             self.subgoal_thresholds[key] = (
-                torch.tensor(val, device=self.device) if type(val) is not torch.Tensor else val.to(self.device)
+                torch.tensor(val, device=self.device, dtype=torch.float32)
+                if type(val) is not torch.Tensor
+                else val.to(self.device).to(torch.float32)
             )
 
         self.single_subgoals_length = self._get_dict_lengths(self.single_subgoals)
@@ -40,7 +44,7 @@ class SubgoalPlanner:
             (num_envs, sum(self.single_subgoals_length), 9), device=self.device, dtype=torch.float32
         )
         self.curr_subgoals_and_thresholds = torch.zeros((num_envs, 9), device=self.device, dtype=torch.float32)
-        self.subgoals_indices = torch.zeros(self.num_envs, device=self.device, dtype=torch.int8)
+        self.subgoals_indices = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
 
     def _get_dict_lengths(self, input_dict: Mapping[str, Union[Sequence[Any], torch.Tensor]]) -> list[int]:
         length = []
@@ -86,7 +90,7 @@ class SubgoalPlanner:
                 for i in range(len(self.subgoals_indices))
             ],
             device=self.device,
-            dtype=torch.int32,
+            dtype=torch.long,
         )
 
         self.curr_subgoals_and_thresholds = self.subgoals_and_thresholds.view(-1, 9)[sample_indices, :]
@@ -112,7 +116,9 @@ class SubgoalPlanner:
             succ = (pos_dist <= curr_pos_threshold) & (quat_dist <= curr_rot_threshold)
         else:
             succ = pos_dist <= curr_pos_threshold
-        self.subgoals_indices = (self.subgoals_indices + succ).clamp(max=sum(self.single_subgoals_length))
+
+        self.subgoals_indices = (self.subgoals_indices + succ).clamp(max=sum(self.single_subgoals_length) - 1)
+        # print(self.subgoals_indices)
         sample_indices = torch.tensor(
             [
                 self.subgoals_indices[i] + i * sum(self.single_subgoals_length)
