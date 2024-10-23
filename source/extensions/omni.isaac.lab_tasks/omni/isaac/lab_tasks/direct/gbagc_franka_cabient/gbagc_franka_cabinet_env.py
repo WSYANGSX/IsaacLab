@@ -480,8 +480,8 @@ def _compute_rewards(
     task_complete_bonus: float,
     action_penalty_weight: float,
     subgoal_control_mode: str,
-):
-    # action change rewards
+) -> torch.Tensor:
+    # action change penalty
     rewards = torch.norm(actions - last_actions, p=2, dim=-1) * action_penalty_weight
 
     # bonus for reaching subgoal
@@ -493,8 +493,6 @@ def _compute_rewards(
         )
     else:
         rewards = torch.where(subgoal_dist <= threshold[:, 0], rewards + subgoal_bonus, rewards)
-
-    # action penalty
 
     # bonus for opening drawer
     rewards = torch.where(drawer_dof_pos > 0.01, rewards + 20, rewards)
