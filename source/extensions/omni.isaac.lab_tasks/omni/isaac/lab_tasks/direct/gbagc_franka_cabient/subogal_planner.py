@@ -45,6 +45,7 @@ class SubgoalPlanner:
         )
         self.curr_subgoals_and_thresholds = torch.zeros((num_envs, 9), device=self.device, dtype=torch.float32)
         self.subgoals_indices = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self.dones = torch.zeros_like(self.subgoals_indices, dtype=torch.bool)
 
     def _get_dict_lengths(self, input_dict: Mapping[str, Union[Sequence[Any], torch.Tensor]]) -> list[int]:
         length = []
@@ -93,6 +94,8 @@ class SubgoalPlanner:
             dtype=torch.long,
         )
 
+        self.dones[env_ids] = 0
+
         self.curr_subgoals_and_thresholds = self.subgoals_and_thresholds.view(-1, 9)[sample_indices, :]
 
     def step(self, curr_ee_pose: torch.Tensor, include_quat: bool = False) -> None:
@@ -117,8 +120,15 @@ class SubgoalPlanner:
         else:
             succ = pos_dist <= curr_pos_threshold
 
-        self.subgoals_indices = (self.subgoals_indices + succ).clamp(max=sum(self.single_subgoals_length) - 1)
-        # print(self.subgoals_indices)
+        self.subgoals_indices = self.subgoals_indices + succ
+        self.dones = torch.where(
+            self.subgoals_indices == sum(self.single_subgoals_length),
+            torch.ones_like(self.dones, dtype=torch.bool),
+            self.dones,
+        )
+
+        self.subgoals_indices.clamp_(max=sum(self.single_subgoals_length) - 1)
+
         sample_indices = torch.tensor(
             [
                 self.subgoals_indices[i] + i * sum(self.single_subgoals_length)
@@ -127,7 +137,6 @@ class SubgoalPlanner:
             device=self.device,
             dtype=torch.int32,
         )
-
         self.curr_subgoals_and_thresholds = self.subgoals_and_thresholds.view(-1, 9)[sample_indices, :]
 
 

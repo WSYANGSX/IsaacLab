@@ -41,7 +41,7 @@ marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
 class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 8.3333  # 500 timesteps
-    decimation = 2
+    decimation = 4
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,))
     observation_space = spaces.Box(low=-torch.inf, high=torch.inf, shape=(22,))
     state_space = 0
@@ -355,7 +355,8 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         terminated = self._cabinet.data.joint_pos[:, 3] > 0.39
         truncated = self.episode_length_buf >= self.max_episode_length - 1
-        return terminated, truncated
+        subgoal_dones = self.subgoal_planner.dones
+        return terminated, truncated | subgoal_dones
 
     def _get_rewards(self) -> torch.Tensor:
         return self._compute_rewards(
