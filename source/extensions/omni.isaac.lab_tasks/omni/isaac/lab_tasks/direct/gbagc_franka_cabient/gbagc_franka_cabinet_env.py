@@ -213,6 +213,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     # reward scales
     subgoal_bonus = 10.0
     task_complete_bonus = 200.0
+    action_penalty_weight = -0.001
 
     # subgoal control mode
     subgoal_control_mode: Literal["position", "pose"] = "position"  #
@@ -261,6 +262,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         self.actions = torch.zeros((self.num_envs, *self.cfg.action_space.shape), device=self.device)  # type: ignore
+        self.last_actions = torch.zeros_like(self.actions)
 
         # subgoals relative
         subgoals = {
@@ -321,6 +323,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
     # pre-physics step calls
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        self.last_actions[:] = self.actions[:]
         self.actions = actions.clone().clamp(self.cfg.action_space.low[0], self.cfg.action_space.high[0])
 
         arm_actions = self.actions[:, 0].clone().view(-1, 1)
@@ -359,14 +362,17 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         return terminated, truncated | subgoal_dones
 
     def _get_rewards(self) -> torch.Tensor:
-        return self._compute_rewards(
+        return _compute_rewards(
+            self.actions,
+            self.last_actions,
             self.subgoals_dist,
             self.subgoals_rot_dist,
             self.threshold,
             self.drawer_dof_pos,
             self.cfg.subgoal_bonus,
             self.cfg.task_complete_bonus,
-            self.num_envs,
+            self.cfg.action_penalty_weight,
+            self.subgoal_control_mode,
         )
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
@@ -461,32 +467,38 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         self.subgoal_visualization.visualize(self.subgoal_pos + self.scene.env_origins, self.subgoal_rot)
 
-    def _compute_rewards(
-        self,
-        subgoal_dist: torch.Tensor,
-        subgoal_rot_dist: torch.Tensor,
-        threshold: torch.Tensor,
-        drawer_dof_pos: torch.Tensor,
-        subgoal_bonus: float,
-        task_complete_bonus: float,
-        num_envs: int,
-    ):
-        # sparse reward
-        rewards = torch.zeros((num_envs,), device=self.device, dtype=torch.float32)
 
-        # bonus for reaching subgoal
-        if self.subgoal_control_mode == "pose":
-            rewards = torch.where(
-                (subgoal_dist <= threshold[:, 0]) & (subgoal_rot_dist <= threshold[:, 1]),
-                rewards + subgoal_bonus,
-                rewards,
-            )
-        else:
-            rewards = torch.where(subgoal_dist <= threshold[:, 0], rewards + subgoal_bonus, rewards)
+@torch.jit.script
+def _compute_rewards(
+    actions: torch.Tensor,
+    last_actions: torch.Tensor,
+    subgoal_dist: torch.Tensor,
+    subgoal_rot_dist: torch.Tensor,
+    threshold: torch.Tensor,
+    drawer_dof_pos: torch.Tensor,
+    subgoal_bonus: float,
+    task_complete_bonus: float,
+    action_penalty_weight: float,
+    subgoal_control_mode: str,
+):
+    # action change rewards
+    rewards = torch.norm(actions - last_actions, p=2, dim=-1) * action_penalty_weight
 
-        # bonus for opening drawer
-        rewards = torch.where(drawer_dof_pos > 0.01, rewards + 20, rewards)
-        rewards = torch.where(drawer_dof_pos > 0.2, rewards + 40, rewards)
-        rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
+    # bonus for reaching subgoal
+    if subgoal_control_mode == "pose":
+        rewards = torch.where(
+            (subgoal_dist <= threshold[:, 0]) & (subgoal_rot_dist <= threshold[:, 1]),
+            rewards + subgoal_bonus,
+            rewards,
+        )
+    else:
+        rewards = torch.where(subgoal_dist <= threshold[:, 0], rewards + subgoal_bonus, rewards)
 
-        return rewards
+    # action penalty
+
+    # bonus for opening drawer
+    rewards = torch.where(drawer_dof_pos > 0.01, rewards + 20, rewards)
+    rewards = torch.where(drawer_dof_pos > 0.2, rewards + 40, rewards)
+    rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
+
+    return rewards
