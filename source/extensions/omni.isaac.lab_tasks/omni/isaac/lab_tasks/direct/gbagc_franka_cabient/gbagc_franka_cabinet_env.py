@@ -211,7 +211,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     )
 
     # reward scales
-    subgoal_bonus = 10.0
+    subgoal_bonus = 20.0
     task_complete_bonus = 200.0
     action_penalty_weight = -0.001
 
