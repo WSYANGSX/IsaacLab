@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -9,7 +11,6 @@ from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.resources.schedulers.torch import KLAdaptiveLR
-from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 
@@ -19,18 +20,24 @@ set_seed()  # e.g. `set_seed(42)` for fixed seed
 
 # define shared model (stochastic and deterministic models) using mixins
 class Shared(GaussianMixin, DeterministicMixin, Model):
-    def __init__(self, observation_space, action_space, device, clip_actions=False,
-                 clip_log_std=True, min_log_std=-20, max_log_std=2, reduction="sum"):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        device,
+        clip_actions=False,
+        clip_log_std=True,
+        min_log_std=-20,
+        max_log_std=2,
+        reduction="sum",
+    ):
         Model.__init__(self, observation_space, action_space, device)
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 512),
-                                 nn.ELU(),
-                                 nn.Linear(512, 256),
-                                 nn.ELU(),
-                                 nn.Linear(256, 64),
-                                 nn.ELU())
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
+        )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
@@ -103,17 +110,45 @@ cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
 cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO"
 
-agent = PPO(models=models,
-            memory=memory,
-            cfg=cfg,
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            device=device)
+agent = PPO(
+    models=models,
+    memory=memory,
+    cfg=cfg,
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=device,
+)
 
+models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO/24-11-06_10-31-59-758983_PPO/checkpoints"
+models_list = os.listdir(models_path)
+sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 75000, "headless": False}
-trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+succ_rate = []
 
-# start training
-trainer.train()
+for model in sorted_model_names:
+    agent.load(os.path.join(models_path, model))
+
+    states, infos = env.reset()
+
+    for i in range(500):  # env eposide-length setting
+        # state-preprocessor + policy
+        with torch.no_grad():
+            states = agent._state_preprocessor(states)
+            actions = agent.policy.act({"states": states}, role="policy")[0]
+
+        # step the environment
+        next_states, rewards, terminated, truncated, infos = env.step(actions)
+
+        # render the environment
+        env.render()
+
+        # check for termination/truncation
+        if terminated.any() or truncated.any():
+            states, infos = env.reset()
+        else:
+            states = next_states
+
+    success = env.success
+    succ_rate.append((sum(success) / env.num_envs).item())
+
+print(succ_rate)
