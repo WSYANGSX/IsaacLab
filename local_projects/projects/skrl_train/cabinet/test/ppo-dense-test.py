@@ -119,7 +119,7 @@ agent = PPO(
     device=device,
 )
 
-models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO/24-11-06_10-31-59-758983_PPO/checkpoints"
+models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO/5/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
@@ -152,3 +152,4 @@ for model in sorted_model_names:
     succ_rate.append((sum(success) / env.num_envs).item())
 
 print(succ_rate)
+env.close()
