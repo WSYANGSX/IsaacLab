@@ -1,3 +1,5 @@
+import os 
+
 import torch
 import torch.nn as nn
 
@@ -112,13 +114,37 @@ agent = DDPG(
 )
 
 
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 75000, "headless": True}
-trainer = SequentialTrainer(
-    cfg=cfg_trainer,
-    env=env,
-    agents=agent,
-)
+models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-DDPG/5/checkpoints"
+models_list = os.listdir(models_path)
+sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
-# start training
-trainer.train()
+succ_rate = []
+
+for model in sorted_model_names:
+    agent.load(os.path.join(models_path, model))
+
+    states, infos = env.reset()
+
+    for i in range(500):  # env eposide-length setting
+        # state-preprocessor + policy
+        with torch.no_grad():
+            states = agent._state_preprocessor(states)
+            actions = agent.policy.act({"states": states}, role="policy")[0]
+
+        # step the environment
+        next_states, rewards, terminated, truncated, infos = env.step(actions)
+
+        # render the environment
+        env.render()
+
+        # check for termination/truncation
+        if terminated.any() or truncated.any():
+            states, infos = env.reset()
+        else:
+            states = next_states
+
+    success = env.success
+    succ_rate.append((sum(success) / env.num_envs).item())
+
+print(succ_rate)
+env.close()
