@@ -16,17 +16,6 @@ if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
 
 
-def object_is_lifted(
-    env: ManagerBasedRLEnv,
-    minimal_height: float,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-) -> torch.Tensor:
-    """Reward the agent for lifting the object above the minimal height."""
-    object: RigidObject = env.scene[object_cfg.name]
-
-    return torch.where(object.data.root_pos_w[:, 2] > minimal_height, 1.0, 0.0)
-
-
 def object_ee_distance(
     env: ManagerBasedRLEnv,
     std: float,
@@ -45,6 +34,17 @@ def object_ee_distance(
     object_ee_distance = torch.norm(cube_pos_w - ee_w, dim=1)
 
     return 1 - torch.tanh(object_ee_distance / std)
+
+
+def object_is_lifted(
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Reward the agent for lifting the object above the minimal height."""
+    object: RigidObject = env.scene[object_cfg.name]
+
+    return torch.where(object.data.root_pos_w[:, 2] > minimal_height, 1.0, 0.0)
 
 
 def object_goal_distance(
