@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from omni.isaac.lab.assets import RigidObject
 from omni.isaac.lab.managers import SceneEntityCfg
+from omni.isaac.lab.sensors import FrameTransformer
 from omni.isaac.lab.utils.math import subtract_frame_transforms
 
 if TYPE_CHECKING:
@@ -25,10 +26,27 @@ def object_position_in_robot_root_frame(
     robot: RigidObject = env.scene[robot_cfg.name]
     object: RigidObject = env.scene[object_cfg.name]
     object_pos_w = object.data.root_pos_w[:, :3]
+    object_quat_w = object.data.root_quat_w[:, :4]
     object_pos_b, _ = subtract_frame_transforms(
-        robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], object_pos_w
+        robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], object_pos_w, object_quat_w
     )
     return object_pos_b
+
+
+def object_quat_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """The position of the object in the robot's root frame."""
+    robot: RigidObject = env.scene[robot_cfg.name]
+    object: RigidObject = env.scene[object_cfg.name]
+    object_pos_w = object.data.root_pos_w[:, :3]
+    object_quat_w = object.data.root_quat_w[:, :4]
+    _, object_quat_b = subtract_frame_transforms(
+        robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], object_pos_w, object_quat_w
+    )
+    return object_quat_b
 
 
 def plate_position_in_robot_root_frame(
@@ -44,3 +62,27 @@ def plate_position_in_robot_root_frame(
         robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], plate_pos_w
     )
     return plate_pos_b
+
+
+def ee_position_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """The position of the plate in the robot's root frame."""
+    end_effector: FrameTransformer = env.scene[ee_frame_cfg.name]
+
+    ee_pos_b = end_effector.data.target_pos_source[:, 0, :]
+
+    return ee_pos_b
+
+
+def ee_quat_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """The position of the plate in the robot's root frame."""
+    end_effector: FrameTransformer = env.scene[ee_frame_cfg.name]
+
+    ee_quat_b = end_effector.data.target_quat_source[:, 0, :]
+
+    return ee_quat_b

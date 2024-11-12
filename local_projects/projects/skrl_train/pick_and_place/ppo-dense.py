@@ -19,18 +19,24 @@ set_seed()  # e.g. `set_seed(42)` for fixed seed
 
 # define shared model (stochastic and deterministic models) using mixins
 class Shared(GaussianMixin, DeterministicMixin, Model):
-    def __init__(self, observation_space, action_space, device, clip_actions=False,
-                 clip_log_std=True, min_log_std=-20, max_log_std=2, reduction="sum"):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        device,
+        clip_actions=False,
+        clip_log_std=True,
+        min_log_std=-20,
+        max_log_std=2,
+        reduction="sum",
+    ):
         Model.__init__(self, observation_space, action_space, device)
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 512),
-                                 nn.ELU(),
-                                 nn.Linear(512, 256),
-                                 nn.ELU(),
-                                 nn.Linear(256, 64),
-                                 nn.ELU())
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
+        )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
@@ -99,21 +105,36 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 336
-cfg["experiment"]["checkpoint_interval"] = 3360
+cfg["experiment"]["write_interval"] = 250
+cfg["experiment"]["checkpoint_interval"] = 2500
 cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-v0-PPO"
 
-agent = PPO(models=models,
-            memory=memory,
-            cfg=cfg,
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            device=device)
+agent = PPO(
+    models=models,
+    memory=memory,
+    cfg=cfg,
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=device,
+)
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 160000, "headless": True}
+cfg_trainer = {"timesteps": 37500, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
 trainer.train()
+
+
+# # ---------------------------------------------------------
+# # comment the code above: `trainer.train()`, and...
+# # uncomment the following lines to evaluate a trained agent
+# # ---------------------------------------------------------
+
+# # download the trained agent's checkpoint from Hugging Face Hub and load it
+# path = "./runs/torch/Isaac-Pick_And_Place-v0-PPO/2/checkpoints/agent_157920.pt"
+# agent.load(path)
+
+# # start evaluation
+# trainer.eval()

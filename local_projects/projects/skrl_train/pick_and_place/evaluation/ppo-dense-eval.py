@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -9,7 +11,6 @@ from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.resources.schedulers.torch import KLAdaptiveLR
-from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 
@@ -31,18 +32,11 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         reduction="sum",
     ):
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(
-            self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction
-        )
+        GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
         self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 512),
-            nn.ELU(),
-            nn.Linear(512, 256),
-            nn.ELU(),
-            nn.Linear(256, 64),
-            nn.ELU(),
+            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
         )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
@@ -61,17 +55,13 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
             self._shared_output = self.net(inputs["states"])
             return self.mean_layer(self._shared_output), self.log_std_parameter, {}
         elif role == "value":
-            shared_output = (
-                self.net(inputs["states"])
-                if self._shared_output is None
-                else self._shared_output
-            )
+            shared_output = self.net(inputs["states"]) if self._shared_output is None else self._shared_output
             self._shared_output = None
             return self.value_layer(shared_output), {}
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Succ-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -118,7 +108,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO-Sparse"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO"
 
 agent = PPO(
     models=models,
@@ -129,10 +119,37 @@ agent = PPO(
     device=device,
 )
 
+models_path = "./runs/torch/Isaac-Pick_And_Place-v0-PPO/2/checkpoints"
+models_list = os.listdir(models_path)
+sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 75000, "headless": True}
-trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+succ_rate = []
 
-# start training
-trainer.train()
+for model in sorted_model_names:
+    agent.load(os.path.join(models_path, model))
+
+    states, infos = env.reset()
+
+    for i in range(500):  # env eposide-length setting
+        # state-preprocessor + policy
+        with torch.no_grad():
+            states = agent._state_preprocessor(states)
+            actions = agent.policy.act({"states": states}, role="policy")[0]
+
+        # step the environment
+        next_states, rewards, terminated, truncated, infos = env.step(actions)
+
+        # render the environment
+        env.render()
+
+        # check for termination/truncation
+        if terminated.any() or truncated.any():
+            states, infos = env.reset()
+        else:
+            states = next_states
+
+    success = env.success
+    succ_rate.append((sum(success) / env.num_envs).item())
+
+print(succ_rate)
+env.close()

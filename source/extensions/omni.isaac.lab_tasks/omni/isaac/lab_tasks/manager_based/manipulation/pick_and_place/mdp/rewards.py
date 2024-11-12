@@ -23,6 +23,7 @@ def object_is_lifted(
 ) -> torch.Tensor:
     """Reward the agent for lifting the object above the minimal height."""
     object: RigidObject = env.scene[object_cfg.name]
+
     return torch.where(object.data.root_pos_w[:, 2] > minimal_height, 1.0, 0.0)
 
 
@@ -39,7 +40,7 @@ def object_ee_distance(
     # Target object position: (num_envs, 3)
     cube_pos_w = object.data.root_pos_w
     # End-effector position: (num_envs, 3)
-    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    ee_w = ee_frame.data.target_pos_w[:, 0, :]
     # Distance of the end-effector to the object: (num_envs,)
     object_ee_distance = torch.norm(cube_pos_w - ee_w, dim=1)
 
@@ -61,33 +62,35 @@ def object_goal_distance(
     des_pos_w = plate.data.root_pos_w[:, :3]
     # distance of the end-effector to the object: (num_envs,)
     distance = torch.norm(des_pos_w - object.data.root_pos_w[:, :3], dim=1)
+
     # rewarded if the object is lifted above the threshold
-    return (object.data.root_pos_w[:, 2] > minimal_height) * (
-        1 - torch.tanh(distance / std)
-    )
+    return (object.data.root_pos_w[:, 2] > minimal_height) * (1 - torch.tanh(distance / std))
 
 
-def task_complete_bonus(
+def task_complete(
     env: ManagerBasedRLEnv,
-    pos_threshold: float = 0.01,
-    final_goal_reach_bonus: float = 100,
+    object_plate_dist_threshold: float = 0.02,
+    ee_height_threshold: float = 0.08,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     plate_cfg: SceneEntityCfg = SceneEntityCfg("plate"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
     """Reward when task completed."""
     # extract the asset (to enable type hinting)
     object: RigidObject = env.scene[object_cfg.name]
     plate: RigidObject = env.scene[plate_cfg.name]
+    end_effector: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    cube_pos_l = object.data.root_pos_w - env.scene.env_origins
+    object_pos_l = object.data.root_pos_w - env.scene.env_origins
     plate_pos_l = plate.data.root_pos_w - env.scene.env_origins
+    ee_pos_l = end_effector.data.target_pos_source[:, 0, :]
 
-    dist = torch.norm(cube_pos_l - plate_pos_l, p=2, dim=-1)
-    succ = dist <= pos_threshold
+    object_plate_dist = torch.norm(object_pos_l - plate_pos_l, p=2, dim=-1)
+    ee_height = ee_pos_l[:, 2]
 
-    reward = torch.where(
-        succ,
-        torch.full_like(succ, fill_value=final_goal_reach_bonus),
-        torch.zeros_like(succ),
+    task_complete = torch.where(
+        (object_plate_dist <= object_plate_dist_threshold) & (ee_height >= ee_height_threshold), 1, 0
     )
-    return reward
+    print(task_complete)
+
+    return task_complete

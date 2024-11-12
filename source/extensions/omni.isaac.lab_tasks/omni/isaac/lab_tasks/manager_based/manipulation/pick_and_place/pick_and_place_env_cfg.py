@@ -8,7 +8,6 @@ from dataclasses import MISSING
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from omni.isaac.lab.envs import ManagerBasedRLEnvCfg
-from omni.isaac.lab.managers import CurriculumTermCfg as CurrTerm
 from omni.isaac.lab.managers import EventTermCfg as EventTerm
 from omni.isaac.lab.managers import ObservationGroupCfg as ObsGroup
 from omni.isaac.lab.managers import ObservationTermCfg as ObsTerm
@@ -31,7 +30,7 @@ from . import mdp
 
 
 @configclass
-class ObjectTableSceneCfg(InteractiveSceneCfg):
+class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     """configuration for a franka pandas pick-and-place scene"""
 
     # ground plane
@@ -81,9 +80,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.25, -0.3, 0.055), rot=(1.0, 0.0, 0.0, 0.0)
-        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, -0.3, 0.055), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # plate
@@ -123,7 +120,10 @@ class ObservationsCfg:
 
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
+        ee_pos = ObsTerm(func=mdp.ee_position_in_robot_root_frame)
+        ee_rot = ObsTerm(func=mdp.ee_quat_in_robot_root_frame)
         object_position = ObsTerm(func=mdp.object_position_in_robot_root_frame)
+        object_rot = ObsTerm(func=mdp.object_quat_in_robot_root_frame)
         plate_position = ObsTerm(func=mdp.plate_position_in_robot_root_frame)
         actions = ObsTerm(func=mdp.last_action)
 
@@ -166,13 +166,9 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    reaching_object = RewTerm(
-        func=mdp.object_ee_distance, params={"std": 0.1}, weight=1.0
-    )
+    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.1}, weight=1.0)
 
-    lifting_object = RewTerm(
-        func=mdp.object_is_lifted, params={"minimal_height": 0.08}, weight=15.0
-    )
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.08}, weight=5.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
@@ -180,15 +176,9 @@ class RewardsCfg:
         weight=16.0,
     )
 
-    object_goal_tracking_fine_grained = RewTerm(
-        func=mdp.object_goal_distance,
-        params={"std": 0.05, "minimal_height": 0.08},
-        weight=5.0,
-    )
-
     task_complete = RewTerm(
-        func=mdp.task_complete_bonus,
-        weight=1.0,
+        func=mdp.task_complete,
+        weight=100.0,
     )
 
     # action penalty
@@ -212,24 +202,9 @@ class TerminationsCfg:
         params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")},
     )
 
-    task_complete = DoneTerm(
-        func=mdp.object_reached_goal,
-    )
-
-
-@configclass
-class CurriculumCfg:
-    """Curriculum terms for the MDP."""
-
-    action_rate = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name": "action_rate", "weight": -1e-1, "num_steps": 10000},
-    )
-
-    joint_vel = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name": "joint_vel", "weight": -1e-1, "num_steps": 10000},
-    )
+    # task_complete = DoneTerm(
+    #     func=mdp.object_reached_goal,
+    # )
 
 
 ##
@@ -242,7 +217,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: PickAndPlaceSceneCfg = PickAndPlaceSceneCfg(num_envs=4096, env_spacing=2.5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -250,7 +225,6 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""

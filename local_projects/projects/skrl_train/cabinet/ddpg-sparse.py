@@ -60,7 +60,7 @@ class Critic(DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Succ-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -93,14 +93,14 @@ cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["random_timesteps"] = 0
+cfg["learning_starts"] = 0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 800
-cfg["experiment"]["checkpoint_interval"] = 8000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Direct-DDPG-Sparse"
+cfg["experiment"]["write_interval"] = 500
+cfg["experiment"]["checkpoint_interval"] = 5000
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse"
 
 agent = DDPG(
     models=models1,
@@ -113,7 +113,7 @@ agent = DDPG(
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 100000, "headless": True}
+cfg_trainer = {"timesteps": 75000, "headless": True}
 trainer = SequentialTrainer(
     cfg=cfg_trainer,
     env=env,
