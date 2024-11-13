@@ -107,7 +107,7 @@ agent = DDPG(
 )
 
 
-models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse/3/checkpoints"
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse/5/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
