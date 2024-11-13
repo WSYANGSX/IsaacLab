@@ -108,7 +108,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO"
+cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO"
 
 agent = PPO(
     models=models,
@@ -119,7 +119,7 @@ agent = PPO(
     device=device,
 )
 
-models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO/3/checkpoints"
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO/5/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 

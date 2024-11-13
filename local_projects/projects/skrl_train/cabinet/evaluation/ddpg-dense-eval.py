@@ -101,7 +101,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-DDPG"
+cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG"
 
 agent = DDPG(
     models=models1,
@@ -113,7 +113,7 @@ agent = DDPG(
 )
 
 
-models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-DDPG/5/checkpoints"
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG/5/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
@@ -124,7 +124,7 @@ for model in sorted_model_names:
 
     states, infos = env.reset()
 
-    for i in range(500):  # env eposide-length setting
+    for i in range(env.max_episode_length - 2):  # env eposide-length setting
         # state-preprocessor + policy
         with torch.no_grad():
             states = agent._state_preprocessor(states)
@@ -138,8 +138,7 @@ for model in sorted_model_names:
 
         states = next_states
 
-    success = env.success
-    succ_rate.append((sum(success) / env.num_envs).item())
+    succ_rate.append((sum(env.success) / env.num_envs).item())
 
 print(succ_rate)
 env.close()

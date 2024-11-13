@@ -1,4 +1,4 @@
-import os 
+import os
 
 import torch
 import torch.nn as nn
@@ -55,9 +55,7 @@ class Critic(DeterministicMixin, Model):
         )
 
     def compute(self, inputs, role):
-        return self.net(
-            torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)
-        ), {}
+        return self.net(torch.cat([inputs["states"], inputs["taken_actions"]], dim=1)), {}
 
 
 # load and wrap the Isaac Lab environment
@@ -75,9 +73,7 @@ memory = RandomMemory(memory_size=15625, num_envs=env.num_envs, device=device)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#models
 models1 = {}
 models1["policy"] = DeterministicActor(env.observation_space, env.action_space, device)
-models1["target_policy"] = DeterministicActor(
-    env.observation_space, env.action_space, device
-)
+models1["target_policy"] = DeterministicActor(env.observation_space, env.action_space, device)
 models1["critic"] = Critic(env.observation_space, env.action_space, device)
 models1["target_critic"] = Critic(env.observation_space, env.action_space, device)
 
@@ -85,9 +81,7 @@ models1["target_critic"] = Critic(env.observation_space, env.action_space, devic
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#configuration-and-hyperparameters
 cfg = DDPG_DEFAULT_CONFIG.copy()
-cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(
-    theta=0.15, sigma=0.1, base_scale=0.5, device=device
-)
+cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.1, base_scale=0.5, device=device)
 cfg["gradient_steps"] = 1
 cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
@@ -95,13 +89,13 @@ cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
 cfg["random_timesteps"] = 0
-cfg["learning_starts"] = 0  
+cfg["learning_starts"] = 0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse"
+cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse"
 
 agent = DDPG(
     models=models1,
@@ -113,7 +107,7 @@ agent = DDPG(
 )
 
 
-models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse/5/checkpoints"
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse/3/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
@@ -124,7 +118,7 @@ for model in sorted_model_names:
 
     states, infos = env.reset()
 
-    for i in range(500):  # env eposide-length setting
+    for i in range(env.max_episode_length - 2):  # env eposide-length setting
         # state-preprocessor + policy
         with torch.no_grad():
             states = agent._state_preprocessor(states)
@@ -136,14 +130,9 @@ for model in sorted_model_names:
         # render the environment
         env.render()
 
-        # check for termination/truncation
-        if terminated.any() or truncated.any():
-            states, infos = env.reset()
-        else:
-            states = next_states
+        states = next_states
 
-    success = env.success
-    succ_rate.append((sum(success) / env.num_envs).item())
+    succ_rate.append((sum(env.success) / env.num_envs).item())
 
 print(succ_rate)
 env.close()
