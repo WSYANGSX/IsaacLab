@@ -119,7 +119,7 @@ agent = PPO(
     device=device,
 )
 
-models_path = "./runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO/5/checkpoints"
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO/3/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
@@ -130,7 +130,7 @@ for model in sorted_model_names:
 
     states, infos = env.reset()
 
-    for i in range(500):  # env eposide-length setting
+    for i in range(env.max_episode_length - 2):  # env eposide-length setting
         # state-preprocessor + policy
         with torch.no_grad():
             states = agent._state_preprocessor(states)
@@ -142,14 +142,9 @@ for model in sorted_model_names:
         # render the environment
         env.render()
 
-        # check for termination/truncation
-        if terminated.any() or truncated.any():
-            states, infos = env.reset()
-        else:
-            states = next_states
+        states = next_states
 
-    success = env.success
-    succ_rate.append((sum(success) / env.num_envs).item())
+    succ_rate.append((sum(env.success) / env.num_envs).item())
 
 print(succ_rate)
 env.close()

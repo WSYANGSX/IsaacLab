@@ -60,7 +60,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-Pick_And_Place-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -107,7 +107,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 250
 cfg["experiment"]["checkpoint_interval"] = 2500
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-v0-PPO"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-v0-PPO-Dense"
 
 agent = PPO(
     models=models,

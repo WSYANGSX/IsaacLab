@@ -356,6 +356,8 @@ class FrankaCabinetEnv(DirectRLEnv):
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
 
+        self.success[env_ids] = 0
+
     def _get_observations(self) -> dict:
         dof_pos_scaled = (
             2.0
@@ -485,7 +487,11 @@ class FrankaCabinetEnv(DirectRLEnv):
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.2, rewards + 0.25, rewards)
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.35, rewards + 0.25, rewards)
 
-        success = torch.where(cabinet_dof_pos[:, 3] > 0.35, torch.ones_like(cabinet_dof_pos[:, 3]), success)
+        success = torch.where(
+            cabinet_dof_pos[:, 3] > 0.35,
+            torch.ones_like(cabinet_dof_pos[:, 3]),
+            torch.zeros_like(cabinet_dof_pos[:, 3]),
+        )
 
         return rewards, success
 

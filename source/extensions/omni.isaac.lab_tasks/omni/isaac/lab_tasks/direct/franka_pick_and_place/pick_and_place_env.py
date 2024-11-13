@@ -41,16 +41,16 @@ marker_cfg.prim_path = "/Visuals/FrameTransformer"
 @configclass
 class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     # env
-    episode_length_s = 5  # 300 timesteps
+    episode_length_s = 10  # 500 timesteps
     decimation = 2
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,))  # 7 joint actions & 1 binary actions
-    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(46,))
+    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(45,))
     state_space = 0
     asymmetric_obs = False
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 120,
+        dt=1 / 100,
         render_interval=decimation,
         disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -120,7 +120,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     # ee_frame
     ee_frame: FrameTransformerCfg = FrameTransformerCfg(
         prim_path="/World/envs/env_.*/Robot/panda_link0",
-        debug_vis=True,
+        debug_vis=False,
         visualizer_cfg=marker_cfg,
         target_frames=[
             FrameTransformerCfg.FrameCfg(
@@ -138,19 +138,21 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
 
     # reward weight & threshold
     # weight
-    reaching_cube_reward_weight = 3.0
-    reaching_target_reward_weight = 16.0
+    reaching_cube_reward_weight = 1.0
+    reaching_target_reward_weight = 10.0
+    leaving_cube_reward_weight = 12.0
     action_penalty_weight = -0.001
 
     # bonus
-    cube_lifted_bonus = 1.0
-    task_complete_bonus = 500
+    cube_lifted_bonus = 5.0
+    task_complete_bonus = 100
 
     # threshold
     cube_lifted_height = 0.08
     ee_cube_std = 0.2
     cube_plate_std = 0.2
     plate_radius = 0.1815
+    fall_height = -0.05
 
 
 class PickAndPlaceEnv(DirectRLEnv):
@@ -201,7 +203,7 @@ class PickAndPlaceEnv(DirectRLEnv):
         self.cube_reached = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         # successes tracker
-        self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.successes = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
         print("[INFO] *************** Task load complete ***************")
 
@@ -272,7 +274,7 @@ class PickAndPlaceEnv(DirectRLEnv):
         )  # 判断符自动将tensor转换为bool类型，& |按位操作
 
         # reset when cube fall or out of reach
-        cube_fall = self.cube_pos_b[:, 2] <= 0
+        cube_fall = self.cube_pos_b[:, 2] <= self.cfg.fall_height
 
         # task complete (do not apply)
         terminated = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
@@ -297,8 +299,9 @@ class PickAndPlaceEnv(DirectRLEnv):
         # plate state (0.2~0.25, 0.35, 0)
         plate_pos = torch.zeros((len(env_ids), 3), dtype=torch.float32, device=self.device)  # type: ignore
         plate_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(len(env_ids), 1)  # type: ignore
-        _x = torch.rand(len(env_ids), device=self.device) * 0.05 + 0.2  # type: ignore
-        plate_pos[:, 0], plate_pos[:, 1] = _x, 0.35
+        _x = torch.rand(len(env_ids), device=self.device) * 0.1 + 0.15  # type: ignore
+        _y = torch.rand(len(env_ids), device=self.device) * 0.1 + 0.15  # type: ignore
+        plate_pos[:, 0], plate_pos[:, 1] = _x, _y
         self._plate.write_root_pose_to_sim(
             torch.cat((plate_pos + self.scene.env_origins[env_ids], plate_rot), dim=-1),
             env_ids=env_ids,  # type: ignore
@@ -307,9 +310,9 @@ class PickAndPlaceEnv(DirectRLEnv):
         # cube state
         cube_pos = torch.zeros((len(env_ids), 3), dtype=torch.float32, device=self.device)  # type: ignore
         cube_rot = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(len(env_ids), 1)  # type: ignore
-        _x = torch.rand(len(env_ids), device=self.device) * 0.05 + 0.2  # type: ignore
-        _y = torch.rand(len(env_ids), device=self.device) * -0.15 - 0.2  # type: ignore
-        cube_pos[:, 0], cube_pos[:, 1], cube_pos[:, 2] = _x, _y, 0.05
+        _x = torch.rand(len(env_ids), device=self.device) * 0.1 + 0.15  # type: ignore
+        _y = torch.rand(len(env_ids), device=self.device) * (-0.15) - 0.15  # type: ignore
+        cube_pos[:, 0], cube_pos[:, 1], cube_pos[:, 2] = _x, _y, 0.055
         self._cube.write_root_pose_to_sim(
             torch.cat((cube_pos + self.scene.env_origins[env_ids], cube_rot), dim=-1),
             env_ids=env_ids,  # type: ignore
@@ -321,6 +324,9 @@ class PickAndPlaceEnv(DirectRLEnv):
 
         # need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values()  # type: ignore
+
+        self.cube_lifted[env_ids] = 0
+        self.cube_reached[env_ids] = 0
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
@@ -357,13 +363,13 @@ class PickAndPlaceEnv(DirectRLEnv):
             self.cfg.cube_plate_std,
             self.cfg.reaching_cube_reward_weight,
             self.cfg.reaching_target_reward_weight,
+            self.cfg.leaving_cube_reward_weight,
             self.cube_reached,
             self.cfg.action_penalty_weight,
             self.cfg.cube_lifted_bonus,
             self.cfg.task_complete_bonus,
             self.actions,
             self.successes,
-            self.cfg.plate_radius,
         )
 
         return total_reward
@@ -396,6 +402,14 @@ class PickAndPlaceEnv(DirectRLEnv):
             self.cube_lifted,
         )
 
+        cube_plate_xy_succ = (
+            torch.norm(self.cube_pos_b[:, :2] - self.plate_pos_b[:, :2], p=2, dim=-1) < self.cfg.plate_radius
+        )
+        cube_z_succ = self.cube_pos_b[:, 2] < 0.03
+        self.cube_reached = torch.where(
+            cube_plate_xy_succ & cube_z_succ, torch.ones_like(self.cube_reached), self.cube_reached
+        )
+
 
 @torch.jit.script
 def compute_rewards(
@@ -407,19 +421,17 @@ def compute_rewards(
     cube_plate_std: float,
     reaching_cube_reward_weight: float,
     reaching_target_reward_weight: float,
+    leaving_cube_reward_weight: float,
     cube_reached: torch.Tensor,
     action_penalty_weight: float,
     cube_lifted_bonus: float,
     task_complete_bonus: float,
     actions: torch.Tensor,
     successes: torch.Tensor,
-    plate_radius: float,
-):
+) -> tuple[torch.Tensor, torch.Tensor]:
     # stage1: approach to cube, lift cube
     ee_cube_dist = torch.norm(ee_pos_b - cube_pos_b, p=2, dim=-1)
-    reaching_cube_reward = (
-        (1 - torch.tanh(ee_cube_dist / ee_cube_std)) * cube_reached.logical_not() * reaching_cube_reward_weight
-    )
+    reaching_cube_reward = (1 - torch.tanh(ee_cube_dist / ee_cube_std)) * reaching_cube_reward_weight
     # print("reaching_cube_reward： ", reaching_cube_reward)
 
     cube_lifted_reward = cube_lifted * cube_lifted_bonus
@@ -427,28 +439,23 @@ def compute_rewards(
     # stage2: pick cube to plate, place cube
     cube_plate_dist = torch.norm(plate_pos_b - cube_pos_b, p=2, dim=-1)
     reaching_target_reward = (
-        (1 - torch.tanh(cube_plate_dist / cube_plate_std))
-        * cube_lifted
-        * cube_reached.logical_not()
-        * reaching_target_reward_weight
+        (1 - torch.tanh(cube_plate_dist / cube_plate_std)) * cube_lifted * reaching_target_reward_weight
     )
     # print("reaching_target_reward:", reaching_target_reward)
 
     # stage3: place cube
+    leaving_cube_reward = torch.tanh(ee_cube_dist / ee_cube_std) * cube_reached * leaving_cube_reward_weight
 
     # action penalty
     action_penalty = torch.sum(actions**2, dim=-1) * action_penalty_weight
     # print("action_penalty:", action_penalty)
 
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-    reward = reaching_cube_reward + cube_lifted_reward + reaching_target_reward + action_penalty
+    reward = reaching_cube_reward + cube_lifted_reward + reaching_target_reward + leaving_cube_reward + action_penalty
 
     # task complete
-    cube_plate_xy_succ = torch.norm(cube_pos_b[:, :2] - plate_pos_b[:, :2]) < plate_radius
-    cube_z_succ = cube_pos_b[:, 2] < 0.03
-    ee_succ = ee_pos_b[:, 2] > 0.06
-
-    successes = torch.where(cube_plate_xy_succ & cube_z_succ & ee_succ, torch.ones_like(successes), successes)
+    ee_succ = ee_pos_b[:, 2] > 0.08
+    successes = torch.where(cube_reached & ee_succ, torch.ones_like(successes), successes)
 
     reward = torch.where(successes, reward + task_complete_bonus, reward)
 
