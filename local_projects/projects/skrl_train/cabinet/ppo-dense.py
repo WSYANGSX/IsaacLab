@@ -25,11 +25,11 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 512),
+        self.net = nn.Sequential(nn.Linear(self.num_observations, 256),
                                  nn.ELU(),
-                                 nn.Linear(512, 256),
+                                 nn.Linear(256, 128),
                                  nn.ELU(),
-                                 nn.Linear(256, 64),
+                                 nn.Linear(128, 64),
                                  nn.ELU())
 
         self.mean_layer = nn.Linear(64, self.num_actions)
