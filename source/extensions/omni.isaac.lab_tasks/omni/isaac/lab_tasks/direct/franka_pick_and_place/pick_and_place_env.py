@@ -37,20 +37,22 @@ marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
 marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
 marker_cfg.prim_path = "/Visuals/FrameTransformer"
 
+torch.set_printoptions(profile="full")
+
 
 @configclass
 class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 10  # 500 timesteps
-    decimation = 2
+    decimation = 4
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,))  # 7 joint actions & 1 binary actions
-    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(45,))
+    observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(43,))
     state_space = 0
     asymmetric_obs = False
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 100,
+        dt=1 / 120,
         render_interval=decimation,
         disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -59,6 +61,12 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
             static_friction=1.0,
             dynamic_friction=1.0,
             restitution=0.0,
+        ),
+        physx=sim_utils.PhysxCfg(
+            bounce_threshold_velocity=0.01,
+            gpu_found_lost_aggregate_pairs_capacity=1024 * 1024 * 4,
+            gpu_total_aggregate_pairs_capacity=16 * 1024,
+            friction_correlation_distance=0.00625,
         ),
     )
 
@@ -84,7 +92,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.5, 0.4)),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, -0.04)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, -0.04), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # cube
@@ -114,7 +122,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.2, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.2, 0.0), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # ee_frame
@@ -140,17 +148,18 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     # weight
     reaching_cube_reward_weight = 1.0
     reaching_target_reward_weight = 10.0
-    leaving_cube_reward_weight = 12.0
-    action_penalty_weight = -0.001
+    action_penalty_weight = -0.0001
+    robot_dof_vel_penalty_weight = -0.0001
 
     # bonus
     cube_lifted_bonus = 5.0
-    task_complete_bonus = 100
+    cube_in_plate_bonus = 10.0
+    task_complete_bonus = 50.0
 
     # threshold
     cube_lifted_height = 0.08
-    ee_cube_std = 0.2
-    cube_plate_std = 0.2
+    ee_cube_dist_std = 0.1
+    cube_plate_dist_std = 0.1
     plate_radius = 0.1815
     fall_height = -0.05
 
@@ -191,16 +200,25 @@ class PickAndPlaceEnv(DirectRLEnv):
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
         self.arm_offset = self._robot.data.default_joint_pos[:, self.arm_joint_idx].clone()
 
-        self.gripper_open_command = self.robot_dof_upper_limits[self.gripper_joint_idx].clone()
-        self.gripper_close_command = self.robot_dof_lower_limits[self.gripper_joint_idx].clone()
+        self.gripper_open_command = self.robot_dof_upper_limits[self.gripper_joint_idx].clone().repeat(self.num_envs, 1)
+        self.gripper_close_command = (
+            self.robot_dof_lower_limits[self.gripper_joint_idx].clone().repeat(self.num_envs, 1)
+        )
 
         # buffers
-        self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
-        self.actions = torch.zeros((self.num_envs, *self.cfg.action_space.shape), device=self.device)  # type: ignore
+        self.robot_dof_targets = torch.zeros(
+            (self.num_envs, self._robot.num_joints), dtype=torch.float32, device=self.device
+        )
+        self.actions = torch.zeros(
+            (self.num_envs, *self.cfg.action_space.shape),  # type: ignore
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.pre_actions = torch.zeros_like(self.actions)
 
         # flags
         self.cube_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self.cube_reached = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.cube_in_plate = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         # successes tracker
         self.successes = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -222,7 +240,7 @@ class PickAndPlaceEnv(DirectRLEnv):
 
         # plate
         self._plate = RigidObject(self.cfg.plate)
-        self.scene.rigid_objects["plate"] = self._cube
+        self.scene.rigid_objects["plate"] = self._plate
 
         # ee_frame & lid_frame
         self._ee_frame = FrameTransformer(self.cfg.ee_frame)
@@ -243,43 +261,6 @@ class PickAndPlaceEnv(DirectRLEnv):
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
-
-    # pre-physics step calls
-    def _pre_physics_step(self, actions: torch.Tensor):
-        self.actions = actions.clone().clamp(self.actions_low, self.actions_high)
-
-        # arm action
-        arm_actions = self.actions[:, :7]
-        arm_targets = self.arm_offset + self.cfg.action_scale * arm_actions
-
-        # gripper action
-        gripper_actions = self.actions[:, 7].clone().view(-1, 1).repeat(1, 2)
-        gripper_targets = torch.where(gripper_actions >= 0, self.gripper_open_command, self.gripper_close_command)
-
-        self.robot_dof_targets = torch.clamp(
-            torch.cat((arm_targets, gripper_targets), dim=-1),
-            self.robot_dof_lower_limits,
-            self.robot_dof_upper_limits,
-        )
-
-    def _apply_action(self):
-        self._robot.set_joint_position_target(self.robot_dof_targets)
-
-    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        self._compute_intermediate_values()
-
-        # reset when time out
-        truncated = (
-            self.episode_length_buf >= self.max_episode_length - 1
-        )  # 判断符自动将tensor转换为bool类型，& |按位操作
-
-        # reset when cube fall or out of reach
-        cube_fall = self.cube_pos_b[:, 2] <= self.cfg.fall_height
-
-        # task complete (do not apply)
-        terminated = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-
-        return terminated, truncated | cube_fall
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         super()._reset_idx(env_ids)  # type: ignore
@@ -325,21 +306,61 @@ class PickAndPlaceEnv(DirectRLEnv):
         # need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values()  # type: ignore
 
+        self.pre_actions[env_ids] = torch.zeros_like(self.pre_actions[env_ids])
+        self.actions[env_ids] = torch.zeros_like(self.actions[env_ids])
         self.cube_lifted[env_ids] = 0
-        self.cube_reached[env_ids] = 0
+        self.cube_in_plate[env_ids] = 0
+
+        self.successes[env_ids] = 0
+
+    # pre-physics step calls
+    def _pre_physics_step(self, actions: torch.Tensor):
+        self.pre_actions[:] = self.actions[:]
+        self.actions[:] = actions.clone().clamp(self.actions_low, self.actions_high)[:]
+
+        # arm action
+        arm_actions = self.actions[:, :7]
+        arm_targets = self.arm_offset + self.cfg.action_scale * arm_actions
+
+        # gripper action
+        gripper_actions = self.actions[:, 7].clone().view(-1, 1).repeat(1, 2)
+        gripper_targets = torch.where(gripper_actions > 0, self.gripper_open_command, self.gripper_close_command)
+
+        self.robot_dof_targets = torch.clamp(
+            torch.cat((arm_targets, gripper_targets), dim=-1),
+            self.robot_dof_lower_limits,
+            self.robot_dof_upper_limits,
+        )
+
+    def _apply_action(self):
+        self._robot.set_joint_position_target(self.robot_dof_targets)
+
+    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        self._compute_intermediate_values()
+
+        # reset when time out
+        truncated = (
+            self.episode_length_buf >= self.max_episode_length - 1
+        )  # 判断符自动将tensor转换为bool类型，& |按位操作
+
+        # reset when cube fall or out of reach
+        cube_fall = self.cube_pos_b[:, 2] <= self.cfg.fall_height
+
+        # task complete (do not apply)
+        terminated = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+
+        return terminated, truncated | cube_fall
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
                 self.robot_dof_pos,
                 self.robot_dof_vel,
-                self.cube_pos_b,
-                self.cube_rot_b,
                 self.ee_pos_b,
                 self.ee_rot_b,
+                self.cube_pos_b,
+                self.cube_rot_b,
                 self.plate_pos_b,
-                self.cube_lifted.view(-1, 1),
-                self.cube_reached.view(-1, 1),
                 self.actions,
             ),
             dim=-1,
@@ -358,17 +379,20 @@ class PickAndPlaceEnv(DirectRLEnv):
             self.ee_pos_b,
             self.cube_pos_b,
             self.plate_pos_b,
-            self.cube_lifted,
-            self.cfg.ee_cube_std,
-            self.cfg.cube_plate_std,
+            self.cfg.ee_cube_dist_std,
+            self.cfg.cube_plate_dist_std,
+            self.actions,
+            self.pre_actions,
+            self.robot_dof_vel,
             self.cfg.reaching_cube_reward_weight,
             self.cfg.reaching_target_reward_weight,
-            self.cfg.leaving_cube_reward_weight,
-            self.cube_reached,
+            self.cube_lifted,
+            self.cube_in_plate,
             self.cfg.action_penalty_weight,
+            self.cfg.robot_dof_vel_penalty_weight,
             self.cfg.cube_lifted_bonus,
+            self.cfg.cube_in_plate_bonus,
             self.cfg.task_complete_bonus,
-            self.actions,
             self.successes,
         )
 
@@ -402,12 +426,11 @@ class PickAndPlaceEnv(DirectRLEnv):
             self.cube_lifted,
         )
 
-        cube_plate_xy_succ = (
-            torch.norm(self.cube_pos_b[:, :2] - self.plate_pos_b[:, :2], p=2, dim=-1) < self.cfg.plate_radius
-        )
-        cube_z_succ = self.cube_pos_b[:, 2] < 0.03
-        self.cube_reached = torch.where(
-            cube_plate_xy_succ & cube_z_succ, torch.ones_like(self.cube_reached), self.cube_reached
+        self.cube_in_plate = torch.where(
+            (torch.norm(self.cube_pos_b[:, :2] - self.plate_pos_b[:, :2], p=2, dim=-1) < self.cfg.plate_radius)
+            & (self.cube_pos_b[:, 2] < 0.03),
+            torch.ones_like(self.cube_in_plate),
+            self.cube_in_plate,
         )
 
 
@@ -416,46 +439,67 @@ def compute_rewards(
     ee_pos_b: torch.Tensor,
     cube_pos_b: torch.Tensor,
     plate_pos_b: torch.Tensor,
-    cube_lifted: torch.Tensor,
-    ee_cube_std: float,
-    cube_plate_std: float,
+    ee_cube_dist_std: float,
+    cube_plate_dist_std: float,
+    actions: torch.Tensor,
+    pre_actions: torch.Tensor,
+    robot_dof_vel: torch.Tensor,
     reaching_cube_reward_weight: float,
     reaching_target_reward_weight: float,
-    leaving_cube_reward_weight: float,
-    cube_reached: torch.Tensor,
+    cube_lifted: torch.Tensor,
+    cube_in_plate: torch.Tensor,
     action_penalty_weight: float,
+    robot_dof_vel_penalty_weight: float,
     cube_lifted_bonus: float,
+    cube_in_plate_bonus: float,
     task_complete_bonus: float,
-    actions: torch.Tensor,
     successes: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     # stage1: approach to cube, lift cube
     ee_cube_dist = torch.norm(ee_pos_b - cube_pos_b, p=2, dim=-1)
-    reaching_cube_reward = (1 - torch.tanh(ee_cube_dist / ee_cube_std)) * reaching_cube_reward_weight
-    # print("reaching_cube_reward： ", reaching_cube_reward)
+    reaching_cube_reward = (1 - torch.tanh(ee_cube_dist / ee_cube_dist_std)) * reaching_cube_reward_weight
+    # print("reaching_cube_reward: ", reaching_cube_reward)
 
     cube_lifted_reward = cube_lifted * cube_lifted_bonus
+    # print("cube_lifted_reward: ", cube_lifted_reward)
 
     # stage2: pick cube to plate, place cube
     cube_plate_dist = torch.norm(plate_pos_b - cube_pos_b, p=2, dim=-1)
     reaching_target_reward = (
-        (1 - torch.tanh(cube_plate_dist / cube_plate_std)) * cube_lifted * reaching_target_reward_weight
+        (1 - torch.tanh(cube_plate_dist / cube_plate_dist_std)) * cube_lifted * reaching_target_reward_weight
     )
     # print("reaching_target_reward:", reaching_target_reward)
 
-    # stage3: place cube
-    leaving_cube_reward = torch.tanh(ee_cube_dist / ee_cube_std) * cube_reached * leaving_cube_reward_weight
+    # cube_in_plate_reward = cube_lifted * cube_lifted * cube_in_plate_bonus
+    # print("cube_in_plate_reward: ", cube_in_plate_reward)
+
+    # # stage3: place cube
+    # leaving_cube_reward = (
+    #     torch.tanh(ee_cube_dist / ee_cube_std) * cube_lifted * cube_in_plate * leaving_cube_reward_weight
+    # )
+    # # print("leaving_cube_reward: ", leaving_cube_reward)
 
     # action penalty
-    action_penalty = torch.sum(actions**2, dim=-1) * action_penalty_weight
+    action_penalty = torch.sum((actions - pre_actions) ** 2, dim=-1) * action_penalty_weight
     # print("action_penalty:", action_penalty)
 
+    # vel penalty
+    robot_dof_vel_penalty = torch.sum(robot_dof_vel**2, dim=-1) * robot_dof_vel_penalty_weight
+
     # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-    reward = reaching_cube_reward + cube_lifted_reward + reaching_target_reward + leaving_cube_reward + action_penalty
+    reward = (
+        reaching_cube_reward
+        + cube_lifted_reward
+        + reaching_target_reward
+        # + cube_in_plate_reward
+        # + leaving_cube_reward
+        + action_penalty
+        + robot_dof_vel_penalty
+    )
 
     # task complete
     ee_succ = ee_pos_b[:, 2] > 0.08
-    successes = torch.where(cube_reached & ee_succ, torch.ones_like(successes), successes)
+    successes = torch.where(cube_in_plate & ee_succ, torch.ones_like(successes), successes)
 
     reward = torch.where(successes, reward + task_complete_bonus, reward)
 

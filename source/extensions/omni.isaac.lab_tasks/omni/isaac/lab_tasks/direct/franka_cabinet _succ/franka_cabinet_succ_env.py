@@ -479,8 +479,8 @@ class FrankaCabinetEnv(DirectRLEnv):
             "finger_dist_penalty": (finger_reward_scale * finger_dist_penalty).mean(),
         }
 
-        # # sparse reward
-        # rewards = torch.zeros((num_envs,), device=self.device, dtype=torch.float32)
+        # sparse reward
+        rewards = torch.zeros((num_envs,), device=self.device, dtype=torch.float32)
 
         # bonus for opening drawer properly
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.01, rewards + 0.25, rewards)

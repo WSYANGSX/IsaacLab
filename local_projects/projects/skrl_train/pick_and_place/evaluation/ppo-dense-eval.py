@@ -36,7 +36,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         DeterministicMixin.__init__(self, clip_actions)
 
         self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
+            nn.Linear(self.num_observations, 256), nn.ELU(), nn.Linear(256, 128), nn.ELU(), nn.Linear(128, 64), nn.ELU()
         )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
@@ -61,7 +61,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-Pick_And_Place-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -108,7 +108,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-Cabinet-Succ-Direct-PPO"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-v0-PPO-Dense"
 
 agent = PPO(
     models=models,
@@ -119,7 +119,7 @@ agent = PPO(
     device=device,
 )
 
-models_path = "./runs/torch/Isaac-Pick_And_Place-v0-PPO/2/checkpoints"
+models_path = "./runs/torch/Isaac-Pick_And_Place-v0-PPO-Dense/1/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 

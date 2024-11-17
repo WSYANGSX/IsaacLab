@@ -1,6 +1,7 @@
 import torch
 
-a = torch.tensor([[1, 2, 3, 4], [1, 2, 3, 4]], dtype=torch.float)
-b = torch.tensor([[2, 5, 3, 4], [1, 6, 3, 4]], dtype=torch.float)
-c = torch.norm(a - b)
-print(c)
+a = torch.tensor([[3, 3], [1, 2], [4, 5]])
+b = torch.tensor([1, 2])
+print(id(a))
+a[0, 1].zero_()
+print(a)
