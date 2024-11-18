@@ -45,7 +45,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 100,
+        dt=1 / 120,
         render_interval=decimation,
         disable_contact_processing=True,
         physx=sim_utils.PhysxCfg(
@@ -225,7 +225,9 @@ class PickAndPlaceEnv(DirectRLEnv):
             .repeat(1, 2)
         )
 
-        self.robot_dof_targets = torch.cat((arm_targets, gripper_targets), dim=-1)
+        self.robot_dof_targets = torch.clamp(
+            torch.cat((arm_targets, gripper_targets), dim=-1), self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self.robot_dof_targets)
@@ -288,7 +290,7 @@ class PickAndPlaceEnv(DirectRLEnv):
             env_ids=env_ids,  # type: ignore
         )
 
-        # TODO:compute physx data 
+        # TODO:compute physx data
         self.sim.step(render=False)
         self.scene.update(1e-10)
 
