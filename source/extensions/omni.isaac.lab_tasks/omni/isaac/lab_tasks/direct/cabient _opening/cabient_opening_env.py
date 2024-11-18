@@ -169,13 +169,15 @@ class CabientOpeningEnvCfg(DirectRLEnvCfg):
 
 
 class CabientOpeningEnv(DirectRLEnv):
+    # reset()
+    #   |-- _reset_index()          # _compute_intermediate_values, reset all envs
     # pre-physics step calls
     #   |-- _pre_physics_step(action)
     #   |-- _apply_action()
     # post-physics step calls
-    #   |-- _get_dones()
+    #   |-- _get_dones()            # _compute_intermediate_values
     #   |-- _get_rewards()
-    #   |-- _reset_idx(env_ids)
+    #   |-- _reset_idx(env_ids)     # _compute_intermediate_values
     #   |-- _get_observations()
 
     cfg: CabientOpeningEnvCfg
@@ -268,7 +270,7 @@ class CabientOpeningEnv(DirectRLEnv):
         self.drawer_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
 
         # success rate
-        self.success = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
@@ -311,7 +313,7 @@ class CabientOpeningEnv(DirectRLEnv):
         robot_left_finger_pos = self._robot.data.body_pos_w[:, self.left_finger_link_idx]
         robot_right_finger_pos = self._robot.data.body_pos_w[:, self.right_finger_link_idx]
 
-        reward, self.success = self._compute_rewards(
+        reward, self.successes = self._compute_rewards(
             self.actions,
             self._cabinet.data.joint_pos,
             self.robot_grasp_pos,
@@ -330,7 +332,7 @@ class CabientOpeningEnv(DirectRLEnv):
             self.cfg.open_reward_scale,
             self.cfg.action_penalty_scale,
             self.cfg.finger_reward_scale,
-            self.success,
+            self.successes,
         )
 
         return reward
@@ -356,7 +358,7 @@ class CabientOpeningEnv(DirectRLEnv):
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
 
-        self.success[env_ids] = 0
+        self.successes[env_ids] = 0
 
     def _get_observations(self) -> dict:
         dof_pos_scaled = (

@@ -97,6 +97,5 @@ def task_complete(
         1,
         0,
     )
-    print(task_complete)
 
     return task_complete
