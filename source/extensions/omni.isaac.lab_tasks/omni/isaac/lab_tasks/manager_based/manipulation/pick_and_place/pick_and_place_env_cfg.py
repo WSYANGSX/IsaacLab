@@ -178,7 +178,7 @@ class RewardsCfg:
 
     task_complete = RewTerm(
         func=mdp.task_complete,
-        weight=100.0,
+        weight=50.0,
     )
 
     # action penalty
@@ -201,10 +201,6 @@ class TerminationsCfg:
         func=mdp.root_height_below_minimum,
         params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")},
     )
-
-    # task_complete = DoneTerm(
-    #     func=mdp.object_reached_goal,
-    # )
 
 
 ##

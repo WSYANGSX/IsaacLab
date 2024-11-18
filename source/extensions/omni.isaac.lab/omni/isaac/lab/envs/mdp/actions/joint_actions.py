@@ -120,7 +120,7 @@ class JointAction(ActionTerm):
         self._raw_actions[:] = actions
         # apply the affine transformations
         self._processed_actions = self._raw_actions * self._scale + self._offset
-
+        
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         self._raw_actions[env_ids] = 0.0
 

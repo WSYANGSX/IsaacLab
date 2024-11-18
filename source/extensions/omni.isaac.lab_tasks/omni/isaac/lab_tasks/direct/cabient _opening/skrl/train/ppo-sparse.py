@@ -19,18 +19,31 @@ set_seed()  # e.g. `set_seed(42)` for fixed seed
 
 # define shared model (stochastic and deterministic models) using mixins
 class Shared(GaussianMixin, DeterministicMixin, Model):
-    def __init__(self, observation_space, action_space, device, clip_actions=False,
-                 clip_log_std=True, min_log_std=-20, max_log_std=2, reduction="sum"):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        device,
+        clip_actions=False,
+        clip_log_std=True,
+        min_log_std=-20,
+        max_log_std=2,
+        reduction="sum",
+    ):
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
+        GaussianMixin.__init__(
+            self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction
+        )
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 512),
-                                 nn.ELU(),
-                                 nn.Linear(512, 256),
-                                 nn.ELU(),
-                                 nn.Linear(256, 64),
-                                 nn.ELU())
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 256),
+            nn.ELU(),
+            nn.Linear(256, 128),
+            nn.ELU(),
+            nn.Linear(128, 64),
+            nn.ELU(),
+        )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
@@ -48,13 +61,17 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
             self._shared_output = self.net(inputs["states"])
             return self.mean_layer(self._shared_output), self.log_std_parameter, {}
         elif role == "value":
-            shared_output = self.net(inputs["states"]) if self._shared_output is None else self._shared_output
+            shared_output = (
+                self.net(inputs["states"])
+                if self._shared_output is None
+                else self._shared_output
+            )
             self._shared_output = None
             return self.value_layer(shared_output), {}
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Open_Pick_Place-v0-Sparse", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -99,20 +116,22 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 336
-cfg["experiment"]["checkpoint_interval"] = 3360
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-Sparse-v0-PPO"
+cfg["experiment"]["write_interval"] = 500
+cfg["experiment"]["checkpoint_interval"] = 5000
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Cabient_Opening-Direct-PPO-Sparse"
 
-agent = PPO(models=models,
-            memory=memory,
-            cfg=cfg,
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            device=device)
+agent = PPO(
+    models=models,
+    memory=memory,
+    cfg=cfg,
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=device,
+)
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 160000, "headless": True}
+cfg_trainer = {"timesteps": 75000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training

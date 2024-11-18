@@ -59,9 +59,9 @@ def object_goal_distance(
     object: RigidObject = env.scene[object_cfg.name]
     plate: RigidObject = env.scene[plate_cfg.name]
     # compute the desired position in the world frame
-    des_pos_w = plate.data.root_pos_w[:, :3]
+    des_pos_w = plate.data.root_pos_w[:, :2]
     # distance of the end-effector to the object: (num_envs,)
-    distance = torch.norm(des_pos_w - object.data.root_pos_w[:, :3], dim=1)
+    distance = torch.norm(des_pos_w - object.data.root_pos_w[:, :2], dim=1)
 
     # rewarded if the object is lifted above the threshold
     return (object.data.root_pos_w[:, 2] > minimal_height) * (1 - torch.tanh(distance / std))
@@ -69,7 +69,8 @@ def object_goal_distance(
 
 def task_complete(
     env: ManagerBasedRLEnv,
-    object_plate_dist_threshold: float = 0.02,
+    object_plate_xy_dist_threshold: float = 0.18,
+    object_plate_z_dist_threshold: float = 0.03,
     ee_height_threshold: float = 0.08,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     plate_cfg: SceneEntityCfg = SceneEntityCfg("plate"),
@@ -85,11 +86,16 @@ def task_complete(
     plate_pos_l = plate.data.root_pos_w - env.scene.env_origins
     ee_pos_l = end_effector.data.target_pos_source[:, 0, :]
 
-    object_plate_dist = torch.norm(object_pos_l - plate_pos_l, p=2, dim=-1)
+    object_plate_xy_dist = torch.norm(object_pos_l[:, :2] - plate_pos_l[:, :2], p=2, dim=-1)
+    object_plate_z_dist = object_pos_l[:, 2] - plate_pos_l[:, 2]
     ee_height = ee_pos_l[:, 2]
 
     task_complete = torch.where(
-        (object_plate_dist <= object_plate_dist_threshold) & (ee_height >= ee_height_threshold), 1, 0
+        (object_plate_xy_dist <= object_plate_xy_dist_threshold)
+        & (ee_height >= ee_height_threshold)
+        & (object_plate_z_dist <= object_plate_z_dist_threshold),
+        1,
+        0,
     )
     print(task_complete)
 
