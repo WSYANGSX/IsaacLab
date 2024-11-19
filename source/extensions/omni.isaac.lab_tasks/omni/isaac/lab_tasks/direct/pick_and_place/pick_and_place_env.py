@@ -16,16 +16,17 @@ from __future__ import annotations
 
 import torch
 
-
 import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObject, RigidObjectCfg, AssetBaseCfg
-from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
-from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
-from omni.isaac.lab.utils import configclass
+from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
+from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
 from omni.isaac.lab.sensors import FrameTransformer, FrameTransformerCfg
 from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
+from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObject, RigidObjectCfg, AssetBaseCfg
+
+from omni.isaac.lab.utils import configclass
+from omni.isaac.lab.utils.math import subtract_frame_transforms
 
 ##
 # Pre-defined configs
@@ -45,7 +46,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 120,
+        dt=1 / 100,
         render_interval=decimation,
         disable_contact_processing=True,
         physx=sim_utils.PhysxCfg(
@@ -133,10 +134,18 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
 
     action_scale = 0.5
 
-    # reward weight & threshold
+    # reward weight
+    reaching_cube_reward_weight = 1
+    cube_lifted_reward_weight = 5
+    reaching_plate_reward_weight = 16
+    action_penalty_weight = -1e-4
+    dof_vel_penalty_weight = -1e-4
+
+    # threshold
+    cube_fall_height = -0.05
+    cube_lifted_height = 0.08
     ee_cube_dist_std = 0.1
     cube_plate_dist_std = 0.3
-    cube_lifted_height = 0.08
 
 
 class PickAndPlaceEnv(DirectRLEnv):
@@ -156,7 +165,7 @@ class PickAndPlaceEnv(DirectRLEnv):
     def __init__(self, cfg: PickAndPlaceEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        # robot propertities
+        # robot properties
         self.arm_joint_ids, _ = self._robot.find_joints(name_keys=["panda_joint.*"])
         self.arm_offset = self._robot.data.default_joint_pos[:, self.arm_joint_ids].clone()
 
@@ -237,14 +246,14 @@ class PickAndPlaceEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         terminated = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         truncated = self.episode_length_buf >= self.max_episode_length - 1
-        cube_fall = self._cube.data.root_pos_w[:, 2] < -0.05
+        cube_fall = self._cube.data.root_pos_w[:, 2] < self.cfg.cube_fall_height
         return terminated, truncated | cube_fall
 
     def _get_rewards(self) -> torch.Tensor:
         # Refresh the intermediate values after the physics steps
         self._compute_intermediate_values()
 
-        reward, self.successes = self._compute_rewards(
+        reward, self.successes = compute_rewards(
             self.actions,
             self.prev_actions,
             self.ee_pos_l,
@@ -254,19 +263,25 @@ class PickAndPlaceEnv(DirectRLEnv):
             self.cfg.ee_cube_dist_std,
             self.cfg.cube_plate_dist_std,
             self.cfg.cube_lifted_height,
+            self.cfg.cube_fall_height,
+            self.cfg.reaching_cube_reward_weight,
+            self.cfg.cube_lifted_reward_weight,
+            self.cfg.reaching_plate_reward_weight,
+            self.cfg.action_penalty_weight,
+            self.cfg.dof_vel_penalty_weight,
             self.successes,
         )
 
         return reward
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
-        super()._reset_idx(env_ids)
+        super()._reset_idx(env_ids)  # type: ignore
 
-        # robot state
+        # TODO:randomize robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = torch.zeros_like(joint_pos)
-        self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
-        self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)  # type: ignore
+        self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)  # type: ignore
 
         # plate
         plate_pos = torch.zeros((len(env_ids), 3), dtype=torch.float32, device=self.device)  # type: ignore
@@ -290,17 +305,13 @@ class PickAndPlaceEnv(DirectRLEnv):
             env_ids=env_ids,  # type: ignore
         )
 
-        # TODO:compute physx data
-        self.sim.step(render=False)
-        self.scene.update(1e-10)
-
-        # compute intermediate state values after reset
-        self._compute_intermediate_values(env_ids)
-
         self.actions[env_ids] = torch.zeros_like(self.actions[env_ids])
         self.prev_actions[env_ids] = torch.zeros_like(self.prev_actions[env_ids])
 
         self.successes[env_ids] = 0
+
+        # compute intermediate state values after reset
+        self._compute_intermediate_values(env_ids)
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
@@ -325,70 +336,86 @@ class PickAndPlaceEnv(DirectRLEnv):
             env_ids = self._robot._ALL_INDICES
 
         self.ee_pos_l, self.ee_quat_l = (
-            self._ee_frame.data.source_pos_w - self.scene.env_origins,
-            self._ee_frame.data.source_quat_w,
+            self._ee_frame.data.target_pos_source[:, 0, :],
+            self._ee_frame.data.target_quat_source[:, 0, :],
         )
-        self.cube_pos_l, self.cube_quat_l = (
-            self._cube.data.root_pos_w - self.scene.env_origins,
+
+        self.cube_pos_l, self.cube_quat_l = subtract_frame_transforms(
+            self._robot.data.root_pos_w,
+            self._robot.data.root_quat_w,
+            self._cube.data.root_pos_w,
             self._cube.data.root_quat_w,
         )
-        self.plate_pos_l, self.plate_quat_l = (
-            self._plate.data.root_pos_w - self.scene.env_origins,
+
+        self.plate_pos_l, self.plate_quat_l = subtract_frame_transforms(
+            self._robot.data.root_pos_w,
+            self._robot.data.root_quat_w,
+            self._plate.data.root_pos_w,
             self._plate.data.root_quat_w,
         )
 
-    def _compute_rewards(
-        self,
-        actions,
-        prev_actions,
-        ee_pos_l,
-        cube_pos_l,
-        plate_pos_l,
-        robot_dof_vel,
-        ee_cube_dist_std,
-        cube_plate_dist_std,
-        cube_lifted_height,
-        successes,
-    ):
-        # distance from ee to the cube
-        ee_cube_dist = torch.norm(ee_pos_l - cube_pos_l, p=2, dim=-1)
-        reaching_cube_reward = 1 - torch.tanh(ee_cube_dist / ee_cube_dist_std)
 
-        # cube lifted reward
-        cube_lifted_reward = torch.where(cube_pos_l[:, 2] > cube_lifted_height, 1.0, 0.0)
+@torch.jit.script
+def compute_rewards(
+    actions: torch.Tensor,
+    prev_actions: torch.Tensor,
+    ee_pos_l: torch.Tensor,
+    cube_pos_l: torch.Tensor,
+    plate_pos_l: torch.Tensor,
+    robot_dof_vel: torch.Tensor,
+    ee_cube_dist_std: float,
+    cube_plate_dist_std: float,
+    cube_lifted_height: float,
+    cube_fall_height: float,
+    reaching_cube_reward_weight: float,
+    cube_lifted_reward_weight: float,
+    reaching_plate_reward_weight: float,
+    action_penalty_weight: float,
+    dof_vel_penalty_weight: float,
+    successes: torch.Tensor,
+):
+    # distance from ee to the cube
+    ee_cube_dist = torch.norm(ee_pos_l - cube_pos_l, p=2, dim=-1)
+    reaching_cube_reward = 1 - torch.tanh(ee_cube_dist / ee_cube_dist_std)
 
-        # distance from cube to target
-        target_cube_xy_dist = torch.norm(plate_pos_l[:, :2] - cube_pos_l[:, :2], dim=-1)
-        reaching_target_reward = (cube_pos_l[:, 2] > cube_lifted_height) * (
-            1 - torch.tanh(target_cube_xy_dist / cube_plate_dist_std)
-        )
+    # cube lifted reward
+    cube_lifted_reward = torch.where(cube_pos_l[:, 2] > cube_lifted_height, 1.0, 0.0)
 
-        # regularization on the actions
-        action_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1)
+    # distance from cube to target
+    target_cube_xy_dist = torch.norm(plate_pos_l[:, :2] - cube_pos_l[:, :2], dim=-1)
+    reaching_target_reward = (cube_pos_l[:, 2] > cube_lifted_height) * (
+        1 - torch.tanh(target_cube_xy_dist / cube_plate_dist_std)
+    )
 
-        # regularization on the joint vels
-        dof_vel_penalty = torch.sum(torch.square(robot_dof_vel), dim=-1)
+    # regularization on the actions
+    action_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1)
 
-        rewards = (
-            reaching_cube_reward * 1 * self.step_dt
-            + cube_lifted_reward * 5 * self.step_dt
-            + reaching_target_reward * 16 * self.step_dt
-            + action_penalty * (-1e-4) * self.step_dt
-            + dof_vel_penalty * (-1e-4) * self.step_dt
-        )
+    # regularization on the joint velocities
+    dof_vel_penalty = torch.sum(torch.square(robot_dof_vel), dim=-1)
 
-        # bonus for task
-        task_complete = torch.where(
-            (target_cube_xy_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055),
-            1,
-            0,
-        )
-        rewards = torch.where(task_complete == 1, rewards + 50 * self.step_dt, rewards)
+    rewards = (
+        reaching_cube_reward * reaching_cube_reward_weight
+        + cube_lifted_reward * cube_lifted_reward_weight
+        + reaching_target_reward * reaching_plate_reward_weight
+        + action_penalty * action_penalty_weight
+        + dof_vel_penalty * dof_vel_penalty_weight
+    )
 
-        successes = torch.where(
-            task_complete == 1,
-            torch.ones_like(successes),
-            torch.zeros_like(successes),
-        )
+    # cube fall
+    rewards = torch.where(cube_pos_l[:, 2] <= cube_fall_height, rewards - 1000, rewards)
 
-        return rewards, successes
+    # bonus for task
+    task_complete = torch.where(
+        (target_cube_xy_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055),
+        torch.ones_like(target_cube_xy_dist),
+        torch.zeros_like(target_cube_xy_dist),
+    )
+    rewards = torch.where(task_complete == 1, rewards + 50, rewards)
+
+    successes = torch.where(
+        task_complete == 1,
+        torch.ones_like(successes),
+        torch.zeros_like(successes),
+    )
+
+    return rewards, successes

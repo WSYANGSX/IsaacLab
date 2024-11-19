@@ -61,7 +61,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 # load and wrap the Isaac Lab environment
 env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-Direct-v0", num_envs=1024)
-# env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=1024)
+# env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-v0", num_envs=50)
 env = wrap_env(env)
 
 device = env.device
@@ -134,7 +134,7 @@ trainer.train()
 # # ---------------------------------------------------------
 
 # # download the trained agent's checkpoint from Hugging Face Hub and load it
-# path = "./runs/torch/Isaac-Pick_And_Place-v0-PPO/2/checkpoints/agent_157920.pt"
+# path = "./runs/torch/Isaac-Pick_And_Place-Direct-v0-PPO-Dense/1/checkpoints/best_agent.pt"
 # agent.load(path)
 
 # # start evaluation
