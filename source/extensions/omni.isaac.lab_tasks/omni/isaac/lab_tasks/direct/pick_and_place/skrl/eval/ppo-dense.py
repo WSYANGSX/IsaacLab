@@ -61,7 +61,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Succ-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -108,7 +108,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO"
+cfg["experiment"]["directory"] = "runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-PPO-Dense"
 
 agent = PPO(
     models=models,
@@ -119,7 +119,7 @@ agent = PPO(
     device=device,
 )
 
-models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO/5/checkpoints"
+models_path = "./runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-PPO-Dense/1/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
@@ -144,7 +144,7 @@ for model in sorted_model_names:
 
         states = next_states
 
-    succ_rate.append((sum(env.success) / env.num_envs).item())
+    succ_rate.append((sum(env.successes) / env.num_envs).item())
 
 print(succ_rate)
 env.close()

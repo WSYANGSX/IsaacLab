@@ -178,8 +178,10 @@ class PickAndPlaceEnv(DirectRLEnv):
         # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
-        self.actions = torch.zeros(size=(self.num_envs, self.cfg.action_space), device=self.device, dtype=torch.float32)
+        self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device, dtype=torch.float32)
         self.prev_actions = torch.zeros_like(self.actions)
+
+        self.cube_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         # success rate
         self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
@@ -269,6 +271,7 @@ class PickAndPlaceEnv(DirectRLEnv):
             self.cfg.reaching_plate_reward_weight,
             self.cfg.action_penalty_weight,
             self.cfg.dof_vel_penalty_weight,
+            self.cube_lifted,
             self.successes,
         )
 
@@ -313,6 +316,15 @@ class PickAndPlaceEnv(DirectRLEnv):
         # compute intermediate state values after reset
         self._compute_intermediate_values(env_ids)
 
+        # curriculum
+        self._curriculum()
+
+    def _curriculum(self) -> None:
+        if self.common_step_counter >= 40000:
+            print("****************** curriculum performed ******************")
+            self.cfg.action_penalty_weight = -1e-1
+            self.cfg.dof_vel_penalty_weight = -1e-1
+
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
@@ -354,6 +366,10 @@ class PickAndPlaceEnv(DirectRLEnv):
             self._plate.data.root_quat_w,
         )
 
+        self.cube_lifted = torch.where(
+            self.cube_pos_l[:, 2] > self.cfg.cube_lifted_height, torch.ones_like(self.cube_lifted), self.cube_lifted
+        )
+
 
 @torch.jit.script
 def compute_rewards(
@@ -372,6 +388,7 @@ def compute_rewards(
     reaching_plate_reward_weight: float,
     action_penalty_weight: float,
     dof_vel_penalty_weight: float,
+    cube_lifted: torch.Tensor,
     successes: torch.Tensor,
 ):
     # distance from ee to the cube
@@ -406,7 +423,7 @@ def compute_rewards(
 
     # bonus for task
     task_complete = torch.where(
-        (target_cube_xy_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055),
+        (target_cube_xy_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055) & cube_lifted,
         torch.ones_like(target_cube_xy_dist),
         torch.zeros_like(target_cube_xy_dist),
     )
