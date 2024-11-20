@@ -143,7 +143,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
 
     # threshold
     cube_fall_height = -0.05
-    cube_lifted_height = 0.08
+    cube_lifted_height = 0.1
     ee_cube_dist_std = 0.1
     cube_plate_dist_std = 0.3
 
@@ -181,7 +181,9 @@ class PickAndPlaceEnv(DirectRLEnv):
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device, dtype=torch.float32)
         self.prev_actions = torch.zeros_like(self.actions)
 
+        # flags
         self.cube_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.curriculum_performed = False
 
         # success rate
         self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
@@ -320,10 +322,11 @@ class PickAndPlaceEnv(DirectRLEnv):
         self._curriculum()
 
     def _curriculum(self) -> None:
-        if self.common_step_counter >= 40000:
+        if (self.common_step_counter >= 40000) & (self.curriculum_performed is False):
             print("****************** curriculum performed ******************")
             self.cfg.action_penalty_weight = -1e-1
             self.cfg.dof_vel_penalty_weight = -1e-1
+            self.curriculum_performed = True
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
@@ -399,7 +402,9 @@ def compute_rewards(
     cube_lifted_reward = torch.where(cube_pos_l[:, 2] > cube_lifted_height, 1.0, 0.0)
 
     # distance from cube to target
-    target_cube_xy_dist = torch.norm(plate_pos_l[:, :2] - cube_pos_l[:, :2], dim=-1)
+    target_pos = plate_pos_l.clone()
+    target_pos[:, 2] = 0.1
+    target_cube_xy_dist = torch.norm(target_pos - cube_pos_l, dim=-1)
     reaching_target_reward = (cube_pos_l[:, 2] > cube_lifted_height) * (
         1 - torch.tanh(target_cube_xy_dist / cube_plate_dist_std)
     )

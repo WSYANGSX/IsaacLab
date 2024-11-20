@@ -19,3 +19,9 @@ print(d, id(d))
 print(d.data_ptr())
 
 print(a[slice(None, None, None)])
+
+a = 5
+b = False
+
+if (a > 0) & (b is False):
+    print(1)
