@@ -1,7 +1,7 @@
 #!/bin/bash
  
 # 要运行的 Python 脚本的路径
-PYTHON_SCRIPT="/home/yangxf/my_projects/IsaacLab/local_projects/projects/skrl_train/cabinet/ddpg-dense.py"
+PYTHON_SCRIPT="/home/yangxf/my_projects/IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/pick_and_place/skrl/train/ddpg-dense.py"
  
 # 运行 5 次
 for i in {1..5}

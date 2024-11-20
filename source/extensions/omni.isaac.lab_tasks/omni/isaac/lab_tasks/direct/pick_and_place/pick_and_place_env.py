@@ -13,6 +13,7 @@
 # ------------------------------------------------------------------
 
 from __future__ import annotations
+from typing import Literal
 
 import torch
 
@@ -132,7 +133,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
         ],
     )
 
-    action_scale = 0.5
+    train_method: Literal["ppo-dense", "ppo-sparse", "ddpg-dense", "ddpg-sparse"] = "ddpg-dense"
 
     # reward weight
     reaching_cube_reward_weight = 1
@@ -165,6 +166,13 @@ class PickAndPlaceEnv(DirectRLEnv):
     def __init__(self, cfg: PickAndPlaceEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
+        if self.cfg.train_method == "ppo-dense" or self.cfg.train_method == "ppo-sparse":
+            self.action_scale = 0.5
+        elif self.cfg.train_method == "ddpg-dense" or self.cfg.train_method == "ddpg-sparse":
+            self.action_scale = 0.5
+        else:
+            raise ValueError("Undefinded train method.")
+
         # robot properties
         self.arm_joint_ids, _ = self._robot.find_joints(name_keys=["panda_joint.*"])
         self.arm_offset = self._robot.data.default_joint_pos[:, self.arm_joint_ids].clone()
@@ -187,6 +195,9 @@ class PickAndPlaceEnv(DirectRLEnv):
 
         # success rate
         self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+
+        print("[INFO]: Train method: ", self.cfg.train_method)
+        print("[INFO]: Action scale: ", self.action_scale)
 
     def _setup_scene(self):
         # robot
@@ -231,7 +242,7 @@ class PickAndPlaceEnv(DirectRLEnv):
         self.prev_actions[:] = self.actions
         self.actions[:] = actions
 
-        arm_targets = self.arm_offset + self.actions[:, :7] * self.cfg.action_scale
+        arm_targets = self.arm_offset + self.actions[:, :7] * self.action_scale
         gripper_targets = (
             torch.where(self.actions[:, 7] >= 0, self.gripper_open_command, self.gripper_close_command)
             .view(-1, 1)
@@ -257,25 +268,42 @@ class PickAndPlaceEnv(DirectRLEnv):
         # Refresh the intermediate values after the physics steps
         self._compute_intermediate_values()
 
-        reward, self.successes = compute_rewards(
-            self.actions,
-            self.prev_actions,
-            self.ee_pos_l,
-            self.cube_pos_l,
-            self.plate_pos_l,
-            self._robot.data.joint_vel,
-            self.cfg.ee_cube_dist_std,
-            self.cfg.cube_plate_dist_std,
-            self.cfg.cube_lifted_height,
-            self.cfg.cube_fall_height,
-            self.cfg.reaching_cube_reward_weight,
-            self.cfg.cube_lifted_reward_weight,
-            self.cfg.reaching_plate_reward_weight,
-            self.cfg.action_penalty_weight,
-            self.cfg.dof_vel_penalty_weight,
-            self.cube_lifted,
-            self.successes,
-        )
+        if self.cfg.train_method == "ppo-dense" or self.cfg.train_method == "ddpg-dense":
+            reward, self.successes = compute_dense_rewards(
+                self.actions,
+                self.prev_actions,
+                self.ee_pos_l,
+                self.cube_pos_l,
+                self.plate_pos_l,
+                self._robot.data.joint_vel,
+                self.cfg.ee_cube_dist_std,
+                self.cfg.cube_plate_dist_std,
+                self.cfg.cube_lifted_height,
+                self.cfg.cube_fall_height,
+                self.cfg.reaching_cube_reward_weight,
+                self.cfg.cube_lifted_reward_weight,
+                self.cfg.reaching_plate_reward_weight,
+                self.cfg.action_penalty_weight,
+                self.cfg.dof_vel_penalty_weight,
+                self.cube_lifted,
+                self.successes,
+            )
+        else:
+            reward, self.successes = compute_sparse_rewards(
+                self.actions,
+                self.prev_actions,
+                self.ee_pos_l,
+                self.cube_pos_l,
+                self.plate_pos_l,
+                self._robot.data.joint_vel,
+                self.cfg.cube_lifted_height,
+                self.cfg.cube_fall_height,
+                self.cfg.cube_lifted_reward_weight,
+                self.cfg.action_penalty_weight,
+                self.cfg.dof_vel_penalty_weight,
+                self.cube_lifted,
+                self.successes,
+            )
 
         return reward
 
@@ -320,7 +348,8 @@ class PickAndPlaceEnv(DirectRLEnv):
         self._compute_intermediate_values(env_ids)
 
         # curriculum
-        self._curriculum()
+        if self.cfg.train_method == "ppo-dense" or self.cfg.train_method == "ppo-sparse":
+            self._curriculum()
 
     def _curriculum(self) -> None:
         if (self.common_step_counter >= 40000) & (self.curriculum_performed is False):
@@ -377,7 +406,7 @@ class PickAndPlaceEnv(DirectRLEnv):
 
 
 @torch.jit.script
-def compute_rewards(
+def compute_dense_rewards(
     actions: torch.Tensor,
     prev_actions: torch.Tensor,
     ee_pos_l: torch.Tensor,
@@ -395,7 +424,7 @@ def compute_rewards(
     dof_vel_penalty_weight: float,
     cube_lifted: torch.Tensor,
     successes: torch.Tensor,
-):
+) -> tuple[torch.Tensor, torch.Tensor]:
     # distance from ee to the cube
     ee_cube_dist = torch.norm(ee_pos_l - cube_pos_l, p=2, dim=-1)
     reaching_cube_reward = 1 - torch.tanh(ee_cube_dist / ee_cube_dist_std)
@@ -421,6 +450,62 @@ def compute_rewards(
         reaching_cube_reward * reaching_cube_reward_weight
         + cube_lifted_reward * cube_lifted_reward_weight
         + reaching_target_reward * reaching_plate_reward_weight
+        + action_penalty * action_penalty_weight
+        + dof_vel_penalty * dof_vel_penalty_weight
+    )
+
+    # cube fall
+    rewards = torch.where(cube_pos_l[:, 2] <= cube_fall_height, rewards - 1000, rewards)
+
+    # bonus for task
+    task_complete = torch.where(
+        (target_cube_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055) & cube_lifted,
+        torch.ones_like(target_cube_dist),
+        torch.zeros_like(target_cube_dist),
+    )
+    rewards = torch.where(task_complete == 1, rewards + 50, rewards)
+
+    successes = torch.where(
+        task_complete == 1,
+        torch.ones_like(successes),
+        torch.zeros_like(successes),
+    )
+
+    return rewards, successes
+
+
+@torch.jit.script
+def compute_sparse_rewards(
+    actions: torch.Tensor,
+    prev_actions: torch.Tensor,
+    ee_pos_l: torch.Tensor,
+    cube_pos_l: torch.Tensor,
+    plate_pos_l: torch.Tensor,
+    robot_dof_vel: torch.Tensor,
+    cube_lifted_height: float,
+    cube_fall_height: float,
+    cube_lifted_reward_weight: float,
+    action_penalty_weight: float,
+    dof_vel_penalty_weight: float,
+    cube_lifted: torch.Tensor,
+    successes: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # cube lifted reward
+    cube_lifted_reward = torch.where(cube_pos_l[:, 2] > cube_lifted_height, 1.0, 0.0)
+
+    # distance from cube to target
+    target_pos = plate_pos_l.clone()
+    target_pos[:, 2] = 0.1
+    target_cube_dist = torch.norm(target_pos - cube_pos_l, dim=-1)
+
+    # regularization on the actions
+    action_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1)
+
+    # regularization on the joint velocities
+    dof_vel_penalty = torch.sum(torch.square(robot_dof_vel), dim=-1)
+
+    rewards = (
+        cube_lifted_reward * cube_lifted_reward_weight
         + action_penalty * action_penalty_weight
         + dof_vel_penalty * dof_vel_penalty_weight
     )
