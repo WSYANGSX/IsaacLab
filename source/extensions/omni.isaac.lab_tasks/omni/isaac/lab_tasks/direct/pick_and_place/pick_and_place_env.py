@@ -143,7 +143,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
 
     # threshold
     cube_fall_height = -0.05
-    cube_lifted_height = 0.1
+    cube_lifted_height = 0.15
     ee_cube_dist_std = 0.1
     cube_plate_dist_std = 0.3
 

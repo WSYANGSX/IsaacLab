@@ -119,7 +119,7 @@ agent = PPO(
     device=device,
 )
 
-models_path = "./runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-PPO-Dense/3/checkpoints"
+models_path = "./runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-PPO-Dense/4/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
