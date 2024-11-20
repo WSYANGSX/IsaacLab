@@ -137,7 +137,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     # reward weight
     reaching_cube_reward_weight = 1
     cube_lifted_reward_weight = 5
-    reaching_plate_reward_weight = 16
+    reaching_plate_reward_weight = 10
     action_penalty_weight = -1e-4
     dof_vel_penalty_weight = -1e-4
 
@@ -313,6 +313,7 @@ class PickAndPlaceEnv(DirectRLEnv):
         self.actions[env_ids] = torch.zeros_like(self.actions[env_ids])
         self.prev_actions[env_ids] = torch.zeros_like(self.prev_actions[env_ids])
 
+        self.cube_lifted[env_ids] = 0
         self.successes[env_ids] = 0
 
         # compute intermediate state values after reset
@@ -369,6 +370,7 @@ class PickAndPlaceEnv(DirectRLEnv):
             self._plate.data.root_quat_w,
         )
 
+        # flags
         self.cube_lifted = torch.where(
             self.cube_pos_l[:, 2] > self.cfg.cube_lifted_height, torch.ones_like(self.cube_lifted), self.cube_lifted
         )
@@ -404,9 +406,9 @@ def compute_rewards(
     # distance from cube to target
     target_pos = plate_pos_l.clone()
     target_pos[:, 2] = 0.1
-    target_cube_xy_dist = torch.norm(target_pos - cube_pos_l, dim=-1)
+    target_cube_dist = torch.norm(target_pos - cube_pos_l, dim=-1)
     reaching_target_reward = (cube_pos_l[:, 2] > cube_lifted_height) * (
-        1 - torch.tanh(target_cube_xy_dist / cube_plate_dist_std)
+        1 - torch.tanh(target_cube_dist / cube_plate_dist_std)
     )
 
     # regularization on the actions
@@ -428,9 +430,9 @@ def compute_rewards(
 
     # bonus for task
     task_complete = torch.where(
-        (target_cube_xy_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055) & cube_lifted,
-        torch.ones_like(target_cube_xy_dist),
-        torch.zeros_like(target_cube_xy_dist),
+        (target_cube_dist <= 0.15) & (ee_pos_l[:, 2] >= 0.1) & (cube_pos_l[:, 2] <= 0.055) & cube_lifted,
+        torch.ones_like(target_cube_dist),
+        torch.zeros_like(target_cube_dist),
     )
     rewards = torch.where(task_complete == 1, rewards + 50, rewards)
 
