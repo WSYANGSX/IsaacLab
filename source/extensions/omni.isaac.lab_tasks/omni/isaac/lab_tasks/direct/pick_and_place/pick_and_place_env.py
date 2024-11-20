@@ -137,7 +137,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     # reward weight
     reaching_cube_reward_weight = 1
     cube_lifted_reward_weight = 5
-    reaching_plate_reward_weight = 10
+    reaching_plate_reward_weight = 16
     action_penalty_weight = -1e-4
     dof_vel_penalty_weight = -1e-4
 
