@@ -75,7 +75,7 @@ class SubgoalPlanner:
         if env_ids is None:
             env_ids = torch.arange(self.num_envs)
 
-        """compute subgoal pose by current object pose"""
+        # compute subgoal pose by current object pose
         subgoals = compute_subgoals(objects_pose, self.single_subgoals)
 
         # thresholds
@@ -112,15 +112,15 @@ class SubgoalPlanner:
         curr_pos_threshold = self.curr_subgoals_and_thresholds[:, 7]
         curr_rot_threshold = self.curr_subgoals_and_thresholds[:, 8]
 
-        # whether to succ
+        # whether to reach subgoals
         pos_dist = torch.norm(curr_ee_pos - curr_subgoal_pos, p=2, dim=-1)
         if include_quat:
             quat_dist = rotation_distance(curr_ee_rot, curr_subgoal_rot)
-            succ = (pos_dist <= curr_pos_threshold) & (quat_dist <= curr_rot_threshold)
+            subgoal_reached = (pos_dist <= curr_pos_threshold) & (quat_dist <= curr_rot_threshold)
         else:
-            succ = pos_dist <= curr_pos_threshold
+            subgoal_reached = pos_dist <= curr_pos_threshold
 
-        self.subgoals_indices = self.subgoals_indices + succ
+        self.subgoals_indices = self.subgoals_indices + subgoal_reached
         self.dones = torch.where(
             self.subgoals_indices == sum(self.single_subgoals_length),
             torch.ones_like(self.dones, dtype=torch.bool),

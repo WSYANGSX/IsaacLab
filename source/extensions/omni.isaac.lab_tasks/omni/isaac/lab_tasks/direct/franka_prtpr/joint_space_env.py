@@ -49,9 +49,7 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     )
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        num_envs=4096, env_spacing=3.0, replicate_physics=True
-    )
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
     # robot
     robot: ArticulationCfg = ArticulationCfg(
@@ -180,43 +178,25 @@ class JointSpaceEnv(DirectRLEnv):
         self.ee_frame = VisualizationMarkers(self.cfg.ee_frame)
 
         # robot propertities
-        self.robot_entity_cfg = SceneEntityCfg(
-            "robot", joint_names=["panda_joint.*"], body_names=["panda_hand"]
-        )
+        self.robot_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"], body_names=["panda_hand"])
         self.robot_entity_cfg.resolve(self.scene)
         self.hand_link_idx = self.robot_entity_cfg.body_ids[0]  # type: ignore
 
-        self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[
-            0, :, 0
-        ].to(device=self.device)
-        self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[
-            0, :, 1
-        ].to(device=self.device)
+        self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
+        self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
 
-        self.ee_pos_in_hand = torch.tensor([0.0, 0.0, 0.09], device=self.device).repeat(
-            self.num_envs, 1
-        )
-        self.ee_rot_in_hand = torch.tensor(
-            [1.0, 0.0, 0.0, 0.0], device=self.device
-        ).repeat(self.num_envs, 1)
+        self.ee_pos_in_hand = torch.tensor([0.0, 0.0, 0.09], device=self.device).repeat(self.num_envs, 1)
+        self.ee_rot_in_hand = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
 
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
-        self.robot_dof_speed_scales[
-            self._robot.find_joints("panda_finger_joint1")[0]
-        ] = 0.0
-        self.robot_dof_speed_scales[
-            self._robot.find_joints("panda_finger_joint2")[0]
-        ] = 0.0
+        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.0
+        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.0
 
         # buffers
-        self.robot_dof_targets = torch.zeros(
-            (self.num_envs, self._robot.num_joints), device=self.device
-        )
+        self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         self.robot_dof_pos = torch.zeros_like(self.robot_dof_targets)
 
-        self.actions = torch.zeros(
-            (self.num_envs, self.cfg.num_actions), device=self.device
-        )
+        self.actions = torch.zeros((self.num_envs, self.cfg.num_actions), device=self.device)
         self.last_actions = torch.zeros_like(self.actions)
 
         # robot relative
@@ -232,14 +212,10 @@ class JointSpaceEnv(DirectRLEnv):
         self.target_pos = torch.zeros_like(self.robot_hand_pos)
         self.target_rot = torch.zeros_like(self.robot_hand_rot)
 
-        self.reset_goal_buf = torch.zeros(
-            self.num_envs, dtype=torch.int, device=self.device
-        )
+        self.reset_goal_buf = torch.zeros(self.num_envs, dtype=torch.int, device=self.device)
 
         # successes tracker
-        self.successes = torch.zeros(
-            self.num_envs, dtype=torch.float, device=self.device
-        )
+        self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.last_three_successes_rate = deque(maxlen=3)
 
         print("*************** task initialed *****************")
@@ -266,13 +242,9 @@ class JointSpaceEnv(DirectRLEnv):
         self.last_actions[:] = self.actions[:]
         self.actions = actions.clone().clamp(-1.0, 1.0)
 
-        arm_targets = (
-            self.robot_dof_pos[:, :7]
-            + self.robot_dof_speed_scales[:7]
-            * self.dt
-            * self.actions
-            * torch.tensor(self.cfg.action_scale, device=self.device)
-        )
+        arm_targets = self.robot_dof_pos[:, :7] + self.robot_dof_speed_scales[
+            :7
+        ] * self.dt * self.actions * torch.tensor(self.cfg.action_scale, device=self.device)
         self.robot_dof_targets[:, :7] = torch.clamp(
             arm_targets,
             self.robot_dof_lower_limits[:7],
@@ -329,15 +301,11 @@ class JointSpaceEnv(DirectRLEnv):
         success_rate = succecc_num / self.num_envs
         self.last_three_successes_rate.append(success_rate)
 
-        last_three_successes_rate = torch.tensor(
-            list(self.last_three_successes_rate), device=self.device
-        )
+        last_three_successes_rate = torch.tensor(list(self.last_three_successes_rate), device=self.device)
         print("last three successes rate: ", last_three_successes_rate)
 
         if all(last_three_successes_rate >= 2.0):
-            print(
-                "******************** curriculum performed **************************"
-            )
+            print("******************** curriculum performed **************************")
             self.cfg.dist_tolerance *= 0.6
 
             if self.cfg.dist_tolerance < 0.01:
@@ -355,9 +323,7 @@ class JointSpaceEnv(DirectRLEnv):
             (len(env_ids), self._robot.num_joints),  # type: ignore
             self.device,
         )
-        joint_pos = torch.clamp(
-            joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits
-        )
+        joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
         joint_vel = torch.zeros_like(joint_pos)
         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)  # type: ignore
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)  # type: ignore
@@ -386,9 +352,7 @@ class JointSpaceEnv(DirectRLEnv):
         new_pos[:, 2] = torch.abs(new_pos[:, 2] * 0.35) + 0.15
 
         # reset target rotation
-        new_rot = generate_random_quat_with_z_in_hyposphere(
-            len(env_ids), device=self.device
-        )
+        new_rot = generate_random_quat_with_z_in_hyposphere(len(env_ids), device=self.device)
 
         # update target pose
         self.target_pos[env_ids] = new_pos
@@ -399,9 +363,7 @@ class JointSpaceEnv(DirectRLEnv):
         self.reset_goal_buf[env_ids] = 0
 
     def _get_observations(self) -> dict:
-        dist = torch.norm(
-            self.target_pos - self.robot_ee_pos, p=2, dim=-1, keepdim=True
-        )
+        dist = torch.norm(self.target_pos - self.robot_ee_pos, p=2, dim=-1, keepdim=True)
 
         rot_dist = rotation_distance(self.target_rot, self.robot_ee_rot)
         rot_dist = torch.unsqueeze(rot_dist, dim=0).view(-1, 1)
@@ -433,12 +395,9 @@ class JointSpaceEnv(DirectRLEnv):
             env_ids = self._robot._ALL_INDICES
 
         self.robot_hand_pos[env_ids] = (
-            self._robot.data.body_pos_w[env_ids, self.hand_link_idx]
-            - self.scene.env_origins[env_ids]
+            self._robot.data.body_pos_w[env_ids, self.hand_link_idx] - self.scene.env_origins[env_ids]
         )
-        self.robot_hand_rot[env_ids] = self._robot.data.body_quat_w[
-            env_ids, self.hand_link_idx
-        ]
+        self.robot_hand_rot[env_ids] = self._robot.data.body_quat_w[env_ids, self.hand_link_idx]
 
         self.robot_dof_pos = self._robot.data.joint_pos[:, :7]
 
@@ -482,17 +441,13 @@ class JointSpaceEnv(DirectRLEnv):
         rot_rew = 1.0 / (torch.abs(rot_dist) + rot_eps) * rot_reward_scale
 
         # regularization on the actions (summed for each environment)
-        action_rew = (
-            torch.norm(actions - last_actions, p=2, dim=-1) * action_penalty_scale
-        )
+        action_rew = torch.norm(actions - last_actions, p=2, dim=-1) * action_penalty_scale
 
         # eposide_length 相关惩罚
         eposide_length_penalty = eposide_length_buf * eposide_length_penalty_scale
 
         # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
-        reward = (
-            dist_rew + rot_rew + action_rew + eposide_length_penalty
-        )  # reward的shape为(num_envs, )
+        reward = dist_rew + rot_rew + action_rew + eposide_length_penalty  # reward的shape为(num_envs, )
 
         # Find out which envs hit the target and update successes count
         dist_successes = torch.where(

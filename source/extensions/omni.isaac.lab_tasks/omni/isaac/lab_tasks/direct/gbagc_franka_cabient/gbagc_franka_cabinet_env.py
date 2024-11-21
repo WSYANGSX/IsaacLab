@@ -38,7 +38,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 4
     action_space = 2
-    observation_space = 22
+    observation_space = 36
     state_space = 0
 
     # simulation
@@ -164,6 +164,7 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     # ee_frame
     marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
     marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+    marker_cfg.prim_path = "/Visuals/FrameTransformer"
 
     ee_frame: FrameTransformerCfg = FrameTransformerCfg(
         prim_path="/World/envs/env_.*/Robot/panda_link0",
@@ -209,8 +210,8 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
     )
 
     # reward scales
-    subgoal_bonus = 10.0
-    task_complete_bonus = 50.0
+    subgoal_bonus = 50.0
+    task_complete_bonus = 20.0
     action_penalty_weight = -0.01
 
     # subgoal control mode
@@ -270,7 +271,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
                 [0.0, 0.0, -0.36, 1.0, 0.0, 0.0, 0.0],
             ]
         }
-        threshold = {"handle": [[0.01, 0], [0.01, 0], [0.05, 0.0]]}
+        threshold = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.05, 0.0]]}
         self.subgoal_planner = SubgoalPlanner(
             subgoals=subgoals, thresholds=threshold, num_envs=self.num_envs, device=self.device
         )
@@ -373,6 +374,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             self.cfg.task_complete_bonus,
             self.cfg.action_penalty_weight,
             self.subgoal_control_mode,
+            self.subgoal_planner.dones,
         )
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
@@ -395,6 +397,10 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values()
+
+        # compute physx data
+        self.sim.step(render=True)
+        self.scene.update(self.cfg.sim.dt)
 
         # Reset subgoal planner
         self.subgoal_planner.reset(
@@ -425,6 +431,10 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             (
                 self.robot_dof_pos,
                 self.robot_dof_vel,
+                self.ee_pos_b,
+                self.ee_rot_b,
+                self.handle_pos_b,
+                self.handle_rot_b,
                 self.drawer_dof_pos.unsqueeze(-1),
                 self.drawer_dof_vel.unsqueeze(-1),
                 self.subgoals_dist.unsqueeze(-1),
@@ -433,7 +443,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             dim=-1,
         )
 
-        return {"policy": torch.clamp(obs, -5.0, 5.0)}
+        return {"policy": obs}
 
     # auxiliary methods
 
@@ -453,24 +463,25 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
             self._handle_frame.data.target_quat_source[:, 0, :],
         )
 
-        include_quat = True if self.subgoal_control_mode == "pose" else False
-        self.subgoal_planner.step(
-            curr_ee_pose=torch.cat((self.ee_pos_b, self.ee_rot_b), dim=-1), include_quat=include_quat
-        )
-
         self.subgoal_pos = self.subgoal_planner.current_subgoals[:, :3]
         self.subgoal_rot = self.subgoal_planner.current_subgoals[:, 3:7]
         self.threshold = self.subgoal_planner.current_thresholds
+
         self.subgoals_dist = torch.norm(self.subgoal_pos - self.ee_pos_b, p=2, dim=-1)
         self.subgoals_rot_dist = rotation_distance(self.ee_rot_b, self.subgoal_rot)
 
         self.subgoal_visualization.visualize(self.subgoal_pos + self.scene.env_origins, self.subgoal_rot)
 
+        include_quat = True if self.subgoal_control_mode == "pose" else False
+        self.subgoal_planner.step(
+            curr_ee_pose=torch.cat((self.ee_pos_b, self.ee_rot_b), dim=-1), include_quat=include_quat
+        )
+
 
 @torch.jit.script
 def _compute_rewards(
     actions: torch.Tensor,
-    last_actions: torch.Tensor,
+    prev_actions: torch.Tensor,
     subgoal_dist: torch.Tensor,
     subgoal_rot_dist: torch.Tensor,
     threshold: torch.Tensor,
@@ -479,23 +490,29 @@ def _compute_rewards(
     task_complete_bonus: float,
     action_penalty_weight: float,
     subgoal_control_mode: str,
+    subgoal_finished: torch.Tensor,
 ) -> torch.Tensor:
     # action change penalty
-    rewards = torch.sum(torch.square(actions - last_actions), dim=-1) * action_penalty_weight
+    action_rate_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1) * action_penalty_weight
+    print("action rewards:", action_rate_penalty)
 
     # bonus for reaching subgoal
     if subgoal_control_mode == "pose":
-        rewards = torch.where(
+        subgoal_rewards = torch.where(
             (subgoal_dist <= threshold[:, 0]) & (subgoal_rot_dist <= threshold[:, 1]),
-            rewards + subgoal_bonus,
-            rewards,
+            subgoal_bonus,
+            0,
         )
     else:
-        rewards = torch.where(subgoal_dist <= threshold[:, 0], rewards + subgoal_bonus, rewards)
+        print(subgoal_dist <= threshold[:, 0])
+        subgoal_rewards = torch.where((subgoal_dist <= threshold[:, 0]), subgoal_bonus, 0)
+    print("subgoal rewards: ", subgoal_rewards)
+
+    rewards = action_rate_penalty + subgoal_rewards
 
     # bonus for opening drawer
-    rewards = torch.where(drawer_dof_pos > 0.01, rewards + 20, rewards)
-    rewards = torch.where(drawer_dof_pos > 0.2, rewards + 20, rewards)
+    rewards = torch.where(drawer_dof_pos > 0.01, rewards + 5, rewards)
+    rewards = torch.where(drawer_dof_pos > 0.2, rewards + 10, rewards)
     rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
 
     return rewards
