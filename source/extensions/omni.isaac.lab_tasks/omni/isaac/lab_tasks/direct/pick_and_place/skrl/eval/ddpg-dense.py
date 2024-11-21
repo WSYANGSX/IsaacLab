@@ -61,7 +61,7 @@ class Critic(DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Succ-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -101,7 +101,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG"
+cfg["experiment"]["directory"] = "runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-DDPG-Dense"
 
 agent = DDPG(
     models=models1,
@@ -113,7 +113,7 @@ agent = DDPG(
 )
 
 
-models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Dense/5/checkpoints"
+models_path = "./runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-DDPG-Dense/1/checkpoints"
 models_list = os.listdir(models_path)
 sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
@@ -138,7 +138,7 @@ for model in sorted_model_names:
 
         states = next_states
 
-    succ_rate.append((sum(env.success) / env.num_envs).item())
+    succ_rate.append((sum(env.successes) / env.num_envs).item())
 
 print(succ_rate)
 env.close()

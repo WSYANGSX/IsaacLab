@@ -169,7 +169,8 @@ class PickAndPlaceEnv(DirectRLEnv):
         if self.cfg.train_method == "ppo-dense" or self.cfg.train_method == "ppo-sparse":
             self.action_scale = 0.5
         elif self.cfg.train_method == "ddpg-dense" or self.cfg.train_method == "ddpg-sparse":
-            self.action_scale = 0.5
+            self.action_scale = 0.2
+            self.cfg.cube_lifted_height = 0.08
         else:
             raise ValueError("Undefinded train method.")
 

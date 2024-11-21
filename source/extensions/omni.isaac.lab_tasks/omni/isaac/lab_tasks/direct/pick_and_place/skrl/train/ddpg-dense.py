@@ -25,13 +25,12 @@ class DeterministicActor(DeterministicMixin, Model):
 
         self.net = nn.Sequential(
             nn.Linear(self.num_observations, 256),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(256, 128),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(128, 64),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(64, self.num_actions),
-            nn.Tanh()
         )
 
     def compute(self, inputs, role):
@@ -45,11 +44,11 @@ class Critic(DeterministicMixin, Model):
 
         self.net = nn.Sequential(
             nn.Linear(self.num_observations + self.num_actions, 256),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(256, 128),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(128, 64),
-            nn.ELU(),
+            nn.ReLU(),
             nn.Linear(64, 1),
         )
 
@@ -80,13 +79,13 @@ models1["target_critic"] = Critic(env.observation_space, env.action_space, devic
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#configuration-and-hyperparameters
 cfg = DDPG_DEFAULT_CONFIG.copy()
-cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=1, base_scale=0.5, device=device)
+cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.1, base_scale=0.5, device=device)
 cfg["gradient_steps"] = 1
 cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
-cfg["actor_learning_rate"] = 1e-3
-cfg["critic_learning_rate"] = 1e-3
+cfg["actor_learning_rate"] = 5e-4
+cfg["critic_learning_rate"] = 5e-4
 cfg["random_timesteps"] = 0
 cfg["learning_starts"] = 0
 cfg["state_preprocessor"] = RunningStandardScaler
@@ -113,6 +112,11 @@ trainer = SequentialTrainer(
     env=env,
     agents=agent,
 )
+
+# # Load the checkpoint
+# agent.load(
+#     "./runs/torch/Isaac-Pick_And_Place-Direct-v0-DDPG-Dense/24-11-21_09-21-10-908667_DDPG/checkpoints/agent_75000.pt"
+# )
 
 # start training
 trainer.train()

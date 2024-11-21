@@ -25,9 +25,9 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 256),
+        self.net = nn.Sequential(nn.Linear(self.num_observations, 128),
                                  nn.ELU(),
-                                 nn.Linear(256, 64),
+                                 nn.Linear(128, 64),
                                  nn.ELU())
 
         self.mean_layer = nn.Linear(64, self.num_actions)
@@ -97,8 +97,8 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 336
-cfg["experiment"]["checkpoint_interval"] = 3360
+cfg["experiment"]["write_interval"] = 500
+cfg["experiment"]["checkpoint_interval"] = 5000
 cfg["experiment"]["directory"] = "runs/torch/Isaac-Gbagc-CabinetOpening-v0"
 
 agent = PPO(models=models,
@@ -110,7 +110,7 @@ agent = PPO(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 100000, "headless": True}
+cfg_trainer = {"timesteps": 75000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training

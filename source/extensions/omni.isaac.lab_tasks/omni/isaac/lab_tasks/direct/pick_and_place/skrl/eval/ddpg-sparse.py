@@ -95,7 +95,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse"
+cfg["experiment"]["directory"] = "runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-DDPG-Sparse"
 
 agent = DDPG(
     models=models1,
