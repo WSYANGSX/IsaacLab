@@ -280,7 +280,7 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
 
         # low-level model
         policy_path = (
-            "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/2024-09-08_23-16-09/"
+            "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v1/"
         )
         self.ptp_model = PtpModel(policy_path)
         self.ptp_model.reset()
