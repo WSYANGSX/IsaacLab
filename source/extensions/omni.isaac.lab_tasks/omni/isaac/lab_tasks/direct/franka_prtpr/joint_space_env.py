@@ -333,13 +333,13 @@ class JointSpaceEnv(DirectRLEnv):
 
         if all(last_three_successes_rate >= 2.0):
             print("******************** curriculum performed **************************")
-            self.cfg.dist_tolerance *= 0.6
+            self.cfg.dist_tolerance *= 0.9
             self.cfg.quat_tolerance *= 0.8
 
             if self.cfg.dist_tolerance < 0.005:
                 self.cfg.dist_tolerance = 0.005
-            if self.cfg.quat_tolerance < 0.05:
-                self.cfg.quat_tolerance = 0.05
+            if self.cfg.quat_tolerance < 0.08:
+                self.cfg.quat_tolerance = 0.08
 
         print("[INFO] Current dist_tolerance: ", self.cfg.dist_tolerance)
         print("[INFO] Current rot_tolerance: ", self.cfg.quat_tolerance)
@@ -486,12 +486,12 @@ def compute_rewards(
     # eposide_length penalty
     eposide_length_penalty = eposide_length_buf
 
-    print("ee_target_dist_reward", ee_target_dist_reward * dist_reward_weight)
-    print("ee_target_quat_dist_reward", ee_target_quat_dist_reward * quat_reward_weight)
-    print("dof_vel_penalty", dof_vel_penalty * dof_vel_penalty_weight)
-    print("dof_acc_penalty", dof_acc_penalty * dof_acc_penalty_weight)
-    print("direction_angle_penalty", direction_angle_penalty * ee_vel_direction_penalty_weight)
-    print("eposide_length_penalty", eposide_length_penalty * eposide_lengths_penalty_weight)
+    # print("ee_target_dist_reward", ee_target_dist_reward * dist_reward_weight)
+    # print("ee_target_quat_dist_reward", ee_target_quat_dist_reward * quat_reward_weight)
+    # print("dof_vel_penalty", dof_vel_penalty * dof_vel_penalty_weight)
+    # print("dof_acc_penalty", dof_acc_penalty * dof_acc_penalty_weight)
+    # print("direction_angle_penalty", direction_angle_penalty * ee_vel_direction_penalty_weight)
+    # print("eposide_length_penalty", eposide_length_penalty * eposide_lengths_penalty_weight)
 
     reward = (
         ee_target_dist_reward * dist_reward_weight
