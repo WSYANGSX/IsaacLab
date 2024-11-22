@@ -160,7 +160,11 @@ def calculate_angle_between_vectors(v1: torch.Tensor, v2: torch.Tensor):
     # 使用 arccos 获取夹角（以弧度为单位）
     theta_radians = torch.arccos(cos_theta)
 
-    return theta_radians
+    v1_zero_mask = (v1 == 0).all(dim=-1, keepdim=True)
+    v2_zero_mask = (v2 == 0).all(dim=-1, keepdim=True)
+    zero_mask = torch.where(v1_zero_mask | v2_zero_mask, 0, 1)
+
+    return theta_radians * zero_mask
 
 
 @torch.jit.script

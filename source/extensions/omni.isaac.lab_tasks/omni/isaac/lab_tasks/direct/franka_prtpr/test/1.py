@@ -1,4 +1,7 @@
-from gymnasium import spaces
+import torch
+from local_projects.utils.math import calculate_angle_between_vectors
 
-a = spaces.Box(low=-1, high=1, shape=(7,))
-print(a.low)
+
+v1 = torch.tensor([[1.0], [0.0], [0.0]])
+
+print(v1.squeeze())

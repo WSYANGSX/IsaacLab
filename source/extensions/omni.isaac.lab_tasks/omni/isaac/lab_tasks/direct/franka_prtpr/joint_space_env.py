@@ -23,8 +23,8 @@ from omni.isaac.lab.utils.math import (
     quat_from_angle_axis,
     quat_mul,
 )
-from local_projects.utils.math import rotation_distance
 from omni.isaac.core.utils.torch import torch_rand_float
+from local_projects.utils.math import rotation_distance, calculate_angle_between_vectors
 
 ##
 # Pre-defined configs
@@ -38,7 +38,7 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     episode_length_s = 12  # 720 timesteps
     decimation = 4
     action_space: spaces.Box = spaces.Box(low=-1, high=1, shape=(7,))
-    observation_space: spaces.Box = spaces.Box(low=-torch.inf, high=torch.inf, shape=(30,))
+    observation_space: spaces.Box = spaces.Box(low=-torch.inf, high=torch.inf, shape=(33,))
     state_space = 0
     asymmetric_obs = False
 
@@ -162,8 +162,9 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     # reward weights
     dist_reward_weight = 5
     quat_reward_weight = 5
-    dof_vel_penalty_weight = -1e-3
-    dof_acc_penalty_weight = -1e-3
+    dof_vel_penalty_weight = -1e-2
+    dof_acc_penalty_weight = -1e-4
+    ee_vel_direction_penalty_weight = -0.1
     reach_target_bonus = 500
     task_fail_penalty = -500
     episode_lengths_penalty_weight = -1e-3
@@ -171,7 +172,7 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     # reward threholds
     dist_tolerance = 0.08
     quat_tolerance = 0.1
-    dist_std = 0.1
+    dist_std = 1.5
     quat_std = 1.5
 
 
@@ -223,6 +224,9 @@ class JointSpaceEnv(DirectRLEnv):
         self.target_quat_l = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float32)
 
         self.reset_goal_buf = torch.zeros(self.num_envs, dtype=torch.int, device=self.device)
+
+        self.ee_lin_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
+        self.prev_ee_lin_vel = torch.zeros_like(self.ee_lin_vel)
 
         # successes tracker
         self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -290,10 +294,13 @@ class JointSpaceEnv(DirectRLEnv):
             self.target_quat_l,
             self.robot_dof_vel,
             self.robot_dof_acc,
+            self.ee_lin_vel,
+            self.prev_ee_lin_vel,
             self.cfg.dist_reward_weight,
             self.cfg.quat_reward_weight,
             self.cfg.dof_vel_penalty_weight,
             self.cfg.dof_acc_penalty_weight,
+            self.cfg.ee_vel_direction_penalty_weight,
             self.cfg.episode_lengths_penalty_weight,
             self.cfg.reach_target_bonus,
             self.cfg.task_fail_penalty,
@@ -369,6 +376,9 @@ class JointSpaceEnv(DirectRLEnv):
         self.prev_actions[env_ids] = 0
         self.actions[env_ids] = 0
 
+        self.ee_lin_vel[env_ids] = 0
+        self.prev_ee_lin_vel[env_ids] = 0
+
     def _reset_target_pose(self, env_ids):
         # reset target position
         new_pos = torch_rand_float(-1.0, 1.0, (len(env_ids), 3), device=self.device)
@@ -398,6 +408,7 @@ class JointSpaceEnv(DirectRLEnv):
                 self.ee_target_quat_dist,
                 self.robot_dof_pos,
                 self.robot_dof_vel,
+                self.ee_lin_vel,
             ),
             dim=-1,
         )
@@ -414,6 +425,9 @@ class JointSpaceEnv(DirectRLEnv):
             self._ee_frame.data.target_pos_source[:, 0, :],
             self._ee_frame.data.target_quat_source[:, 0, :],
         )
+
+        self.prev_ee_lin_vel[:] = self.ee_lin_vel
+        self.ee_lin_vel[:] = self._robot.data.body_lin_vel_w[:, self.hand_link_idx, :]
 
         self.ee_target_dist = torch.norm(self.target_pos_l - self.ee_pos_l, p=2, dim=-1, keepdim=True)
         self.ee_target_quat_dist = rotation_distance(self.target_quat_l, self.ee_quat_l).view(-1, 1)
@@ -432,10 +446,13 @@ def compute_rewards(
     target_quat_l: torch.Tensor,
     robot_dof_vel: torch.Tensor,
     robot_dof_acc: torch.Tensor,
+    ee_lin_vel: torch.Tensor,
+    prev_ee_lin_vel: torch.Tensor,
     dist_reward_weight: float,
     quat_reward_weight: float,
     dof_vel_penalty_weight: float,
     dof_acc_penalty_weight: float,
+    ee_vel_direction_penalty_weight: float,
     eposide_lengths_penalty_weight: float,
     reach_target_bonus: float,
     task_fail_penalty: float,
@@ -462,14 +479,26 @@ def compute_rewards(
     # joint acc penalty
     dof_acc_penalty = torch.sum(torch.square(robot_dof_acc), dim=-1)
 
+    # ee lin vel direction change penalty
+    direction_angle = calculate_angle_between_vectors(ee_lin_vel, prev_ee_lin_vel).squeeze()
+    direction_angle_penalty = torch.tanh(direction_angle)
+
     # eposide_length penalty
     eposide_length_penalty = eposide_length_buf
+
+    print("ee_target_dist_reward", ee_target_dist_reward * dist_reward_weight)
+    print("ee_target_quat_dist_reward", ee_target_quat_dist_reward * quat_reward_weight)
+    print("dof_vel_penalty", dof_vel_penalty * dof_vel_penalty_weight)
+    print("dof_acc_penalty", dof_acc_penalty * dof_acc_penalty_weight)
+    print("direction_angle_penalty", direction_angle_penalty * ee_vel_direction_penalty_weight)
+    print("eposide_length_penalty", eposide_length_penalty * eposide_lengths_penalty_weight)
 
     reward = (
         ee_target_dist_reward * dist_reward_weight
         + ee_target_quat_dist_reward * quat_reward_weight
         + dof_vel_penalty * dof_vel_penalty_weight
         + dof_acc_penalty * dof_acc_penalty_weight
+        + direction_angle_penalty * ee_vel_direction_penalty_weight
         + eposide_length_penalty * eposide_lengths_penalty_weight
     )
 
