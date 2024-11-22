@@ -118,7 +118,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
     marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
     marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
     marker_cfg.prim_path = "/Visuals/FrameTransformer"
-    
+
     ee_frame: FrameTransformerCfg = FrameTransformerCfg(
         prim_path="/World/envs/env_.*/Robot/panda_link0",
         debug_vis=False,

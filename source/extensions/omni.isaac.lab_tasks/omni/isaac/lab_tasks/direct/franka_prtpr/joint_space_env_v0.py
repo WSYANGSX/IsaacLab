@@ -3,7 +3,6 @@ from __future__ import annotations
 import torch
 from collections import deque
 
-from gymnasium import spaces
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.actuators.actuator_cfg import ImplicitActuatorCfg
 from omni.isaac.lab.assets import Articulation, ArticulationCfg
@@ -13,23 +12,16 @@ from omni.isaac.lab.markers import VisualizationMarkersCfg, VisualizationMarkers
 from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.terrains import TerrainImporterCfg
-from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
-from omni.isaac.lab.sensors import FrameTransformerCfg, FrameTransformer
-from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
-
 from omni.isaac.lab.utils import configclass
+from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 from omni.isaac.lab.utils.math import (
     sample_uniform,
+    combine_frame_transforms,
     quat_from_angle_axis,
     quat_mul,
 )
 from local_projects.utils.math import rotation_distance
 from omni.isaac.core.utils.torch import torch_rand_float
-
-##
-# Pre-defined configs
-##
-from omni.isaac.lab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
 
 @configclass
@@ -37,9 +29,9 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 12  # 720 timesteps
     decimation = 4
-    action_space: spaces.Box = spaces.Box(low=-1, high=1, shape=(7,))
-    observation_space: spaces.Box = spaces.Box(low=-torch.inf, high=torch.inf, shape=(30,))
-    state_space = 0
+    num_actions = 7
+    num_observations = 23
+    num_states = 0
     asymmetric_obs = False
 
     # simulation
@@ -128,7 +120,7 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
 
     # target
     target: VisualizationMarkersCfg = VisualizationMarkersCfg(
-        prim_path="/Visual/Target",
+        prim_path="/Visual/marker1",
         markers={
             "target": sim_utils.UsdFileCfg(
                 usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
@@ -137,42 +129,29 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
         },
     )
 
-    # ee_frame
-    marker_cfg = FRAME_MARKER_CFG.copy()  # type: ignore
-    marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
-    marker_cfg.prim_path = "/Visuals/FrameTransformer"
-
-    ee_frame: FrameTransformerCfg = FrameTransformerCfg(
-        prim_path="/World/envs/env_.*/Robot/panda_link0",
-        debug_vis=True,
-        visualizer_cfg=marker_cfg.replace(prim_path="/Visuals/EEFrameTransformer"),
-        target_frames=[
-            FrameTransformerCfg.FrameCfg(
-                prim_path="/World/envs/env_.*/Robot/panda_hand",
-                name="end_effector",
-                offset=OffsetCfg(
-                    pos=(0.0, 0.0, 0.1034),
-                ),
-            ),
-        ],
+    # target
+    ee_frame: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visual/marker2",
+        markers={
+            "ee_frame": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
+                scale=(0.1, 0.1, 0.1),
+            )
+        },
     )
 
     action_scale = [5.0, 5.0, 5.0, 2.5, 2.5, 2.5, 2.5]
 
-    # reward weights
-    dist_reward_weight = 5
-    quat_reward_weight = 5
-    dof_vel_penalty_weight = -1e-3
-    dof_acc_penalty_weight = -1e-3
+    # reward scales
+    dist_reward_scale = -5.0
+    rot_reward_scale = 0.1
+    direction_change_penalty_scale = -1
+    rot_eps = 0.1
+    action_penalty_scale = -0.1
     reach_target_bonus = 500
-    task_fail_penalty = -500
-    episode_lengths_penalty_weight = -1e-3
-
-    # reward threholds
-    dist_tolerance = 0.08
-    quat_tolerance = 0.1
-    dist_std = 0.1
-    quat_std = 1.5
+    eposide_lengths_penalty_scale = -0.001
+    dist_tolerance = 0.1
+    rot_tolerance = 0.1
 
 
 class JointSpaceEnv(DirectRLEnv):
@@ -196,6 +175,7 @@ class JointSpaceEnv(DirectRLEnv):
 
         # visualization markers
         self.target = VisualizationMarkers(self.cfg.target)
+        self.ee_frame = VisualizationMarkers(self.cfg.ee_frame)
 
         # robot propertities
         self.robot_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"], body_names=["panda_hand"])
@@ -205,22 +185,32 @@ class JointSpaceEnv(DirectRLEnv):
         self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
 
-        self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits[:7])
-        self.action_scale = torch.tensor(self.cfg.action_scale, device=self.device, dtype=torch.float32)
+        self.ee_pos_in_hand = torch.tensor([0.0, 0.0, 0.09], device=self.device).repeat(self.num_envs, 1)
+        self.ee_rot_in_hand = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
+
+        self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
+        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.0
+        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.0
 
         # buffers
-        self.robot_dof_targets = torch.zeros(
-            (self.num_envs, self._robot.num_joints), device=self.device, dtype=torch.float32
-        )
+        self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
+        self.robot_dof_pos = torch.zeros_like(self.robot_dof_targets)
 
-        self.actions = torch.zeros(
-            (self.num_envs, *self.cfg.action_space.shape), device=self.device, dtype=torch.float32
-        )  # type: ignore
-        self.prev_actions = torch.zeros_like(self.actions)
+        self.actions = torch.zeros((self.num_envs, self.cfg.num_actions), device=self.device)
+        self.last_actions = torch.zeros_like(self.actions)
+
+        # robot relative
+        self.robot_hand_pos = torch.zeros((self.num_envs, 3), device=self.device)
+        self.robot_hand_rot = torch.zeros((self.num_envs, 4), device=self.device)
+        self.robot_hand_pos_target = torch.zeros((self.num_envs, 3), device=self.device)
+        self.robot_hand_rot_target = torch.zeros((self.num_envs, 4), device=self.device)
+
+        self.robot_ee_pos = torch.zeros_like(self.robot_hand_pos)
+        self.robot_ee_rot = torch.zeros_like(self.robot_hand_rot)
 
         # target relative
-        self.target_pos_l = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
-        self.target_quat_l = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float32)
+        self.target_pos = torch.zeros_like(self.robot_hand_pos)
+        self.target_rot = torch.zeros_like(self.robot_hand_rot)
 
         self.reset_goal_buf = torch.zeros(self.num_envs, dtype=torch.int, device=self.device)
 
@@ -228,16 +218,11 @@ class JointSpaceEnv(DirectRLEnv):
         self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.last_three_successes_rate = deque(maxlen=3)
 
-        print("[INFO] *************** task initialized *****************")
+        print("*************** task initialed *****************")
 
     def _setup_scene(self):
-        # robot
         self._robot = Articulation(self.cfg.robot)
         self.scene.articulations["robot"] = self._robot
-
-        # ee_frame
-        self._ee_frame = FrameTransformer(self.cfg.ee_frame)
-        self.scene.sensors["ee_frame"] = self._ee_frame
 
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
@@ -254,13 +239,12 @@ class JointSpaceEnv(DirectRLEnv):
     # pre-physics step calls
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        self.prev_actions[:] = self.actions
-        self.actions[:] = actions.clamp(self.cfg.action_space.low[-1], self.cfg.action_space.high[-1])
+        self.last_actions[:] = self.actions[:]
+        self.actions = actions.clone().clamp(-1.0, 1.0)
 
-        arm_targets = (
-            self._robot.data.joint_pos[:, :7] + self.actions * self.dt * self.robot_dof_speed_scales * self.action_scale
-        )
-
+        arm_targets = self.robot_dof_pos[:, :7] + self.robot_dof_speed_scales[
+            :7
+        ] * self.dt * self.actions * torch.tensor(self.cfg.action_scale, device=self.device)
         self.robot_dof_targets[:, :7] = torch.clamp(
             arm_targets,
             self.robot_dof_lower_limits[:7],
@@ -283,35 +267,31 @@ class JointSpaceEnv(DirectRLEnv):
         # Refresh the intermediate values after the physics steps
         self._compute_intermediate_values()
 
-        total_reward, self.successes, self.reset_goal_buf = compute_rewards(
-            self.ee_pos_l,
-            self.ee_quat_l,
-            self.target_pos_l,
-            self.target_quat_l,
-            self.robot_dof_vel,
-            self.robot_dof_acc,
-            self.cfg.dist_reward_weight,
-            self.cfg.quat_reward_weight,
-            self.cfg.dof_vel_penalty_weight,
-            self.cfg.dof_acc_penalty_weight,
-            self.cfg.episode_lengths_penalty_weight,
-            self.cfg.reach_target_bonus,
-            self.cfg.task_fail_penalty,
-            self.cfg.dist_std,
-            self.cfg.quat_std,
-            self.cfg.dist_tolerance,
-            self.cfg.quat_tolerance,
-            self.successes,
+        total_reward, self.successes, self.reset_goal_buf = self._compute_rewards(
             self.reset_goal_buf,
             self.episode_length_buf,
-            self.max_episode_length,
+            self.successes,
+            self.actions,
+            self.last_actions,
+            self.robot_ee_pos,
+            self.robot_ee_rot,
+            self.target_pos,
+            self.target_rot,
+            self.cfg.dist_reward_scale,
+            self.cfg.rot_reward_scale,
+            self.cfg.rot_eps,
+            self.cfg.action_penalty_scale,
+            self.cfg.eposide_lengths_penalty_scale,
+            self.cfg.reach_target_bonus,
+            self.cfg.dist_tolerance,
+            self.cfg.rot_tolerance,
         )
 
         # reset goals if the goal has been reached
-        reset_goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
 
-        if len(reset_goal_env_ids) > 0:
-            self._reset_target_pose(reset_goal_env_ids)
+        if len(goal_env_ids) > 0:
+            self._reset_target_pose(goal_env_ids)
 
         return total_reward
 
@@ -327,19 +307,15 @@ class JointSpaceEnv(DirectRLEnv):
         if all(last_three_successes_rate >= 2.0):
             print("******************** curriculum performed **************************")
             self.cfg.dist_tolerance *= 0.6
-            self.cfg.quat_tolerance *= 0.8
 
-            if self.cfg.dist_tolerance < 0.005:
-                self.cfg.dist_tolerance = 0.005
-            if self.cfg.quat_tolerance < 0.05:
-                self.cfg.quat_tolerance = 0.05
+            if self.cfg.dist_tolerance < 0.01:
+                self.cfg.dist_tolerance = 0.01
 
-        print("[INFO] Current dist_tolerance: ", self.cfg.dist_tolerance)
-        print("[INFO] Current rot_tolerance: ", self.cfg.quat_tolerance)
+        print("current dist_tolerance: ", self.cfg.dist_tolerance)
+        print("current rot_tolerance: ", self.cfg.rot_tolerance)
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         super()._reset_idx(env_ids)  # type: ignore
-
         # robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
             -0.125,
@@ -359,15 +335,14 @@ class JointSpaceEnv(DirectRLEnv):
         self._curriculum()
         self.successes[env_ids] = 0
 
-        # # compute physx data
-        # self.sim.step(render=False)
-        # self.scene.update(self.cfg.sim.dt)
+        # compute physx data
+        self.sim.step(render=False)
+        self.scene.update(self.cfg.sim.dt)
 
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
-        self._compute_intermediate_values()
+        self._compute_intermediate_values(env_ids)
 
-        self.prev_actions[env_ids] = 0
-        self.actions[env_ids] = 0
+        self.last_actions[:] = torch.zeros_like(self.last_actions)
 
     def _reset_target_pose(self, env_ids):
         # reset target position
@@ -377,123 +352,131 @@ class JointSpaceEnv(DirectRLEnv):
         new_pos[:, 2] = torch.abs(new_pos[:, 2] * 0.35) + 0.15
 
         # reset target rotation
-        new_quat = generate_random_quat_with_z_in_hyposphere(len(env_ids), device=self.device)
+        new_rot = generate_random_quat_with_z_in_hyposphere(len(env_ids), device=self.device)
 
         # update target pose
-        self.target_pos_l[env_ids] = new_pos
-        self.target_quat_l[env_ids] = new_quat
+        self.target_pos[env_ids] = new_pos
+        self.target_rot[env_ids] = new_rot
 
-        self.target.visualize(self.target_pos_l + self.scene.env_origins, self.target_quat_l)
+        self.target.visualize(self.target_pos + self.scene.env_origins, self.target_rot)
 
         self.reset_goal_buf[env_ids] = 0
 
     def _get_observations(self) -> dict:
+        dist = torch.norm(self.target_pos - self.robot_ee_pos, p=2, dim=-1, keepdim=True)
+
+        rot_dist = rotation_distance(self.target_rot, self.robot_ee_rot)
+        rot_dist = torch.unsqueeze(rot_dist, dim=0).view(-1, 1)
+
         obs = torch.cat(
             (
-                self.ee_pos_l,
-                self.ee_quat_l,
-                self.target_pos_l,
-                self.target_quat_l,
-                self.ee_target_dist,
-                self.ee_target_quat_dist,
+                self.robot_ee_pos,
+                self.robot_ee_rot,
+                self.target_pos,
+                self.target_rot,
+                dist,
+                rot_dist,
                 self.robot_dof_pos,
-                self.robot_dof_vel,
             ),
             dim=-1,
         )
 
-        return {"policy": obs}
+        observations = {"policy": obs}
+
+        if self.cfg.asymmetric_obs:
+            states = self._get_states()
+            observations = {"policy": obs, "critic": states}
+
+        return observations
 
     # auxiliary methods
-    def _compute_intermediate_values(self):
-        self.robot_dof_pos = self._robot.data.joint_pos[:, :7]
-        self.robot_dof_vel = self._robot.data.joint_vel[:, :7]
-        self.robot_dof_acc = self._robot.data.joint_acc[:, :7]
+    def _compute_intermediate_values(self, env_ids: torch.Tensor | None = None):
+        if env_ids is None:
+            env_ids = self._robot._ALL_INDICES
 
-        self.ee_pos_l, self.ee_quat_l = (
-            self._ee_frame.data.target_pos_source[:, 0, :],
-            self._ee_frame.data.target_quat_source[:, 0, :],
+        self.robot_hand_pos[env_ids] = (
+            self._robot.data.body_pos_w[env_ids, self.hand_link_idx] - self.scene.env_origins[env_ids]
+        )
+        self.robot_hand_rot[env_ids] = self._robot.data.body_quat_w[env_ids, self.hand_link_idx]
+
+        self.robot_dof_pos = self._robot.data.joint_pos[:, :7]
+
+        self.robot_ee_pos, self.robot_ee_rot = combine_frame_transforms(
+            self.robot_hand_pos,
+            self.robot_hand_rot,
+            self.ee_pos_in_hand,
+            self.ee_rot_in_hand,
         )
 
-        self.ee_target_dist = torch.norm(self.target_pos_l - self.ee_pos_l, p=2, dim=-1, keepdim=True)
-        self.ee_target_quat_dist = rotation_distance(self.target_quat_l, self.ee_quat_l).view(-1, 1)
+        self.ee_frame.visualize(
+            self.robot_ee_pos + self.scene.env_origins,
+            self.robot_ee_rot,
+        )
+
+    def _compute_rewards(
+        self,
+        reset_goal_buf: torch.Tensor,
+        eposide_length_buf: torch.Tensor,
+        successes: torch.Tensor,
+        actions: torch.Tensor,
+        last_actions: torch.Tensor,
+        franka_ee_pos: torch.Tensor,
+        franka_ee_rot: torch.Tensor,
+        target_pos: torch.Tensor,
+        target_rot: torch.Tensor,
+        dist_reward_scale: float,
+        rot_reward_scale: float,
+        rot_eps: float,
+        action_penalty_scale: float,
+        eposide_length_penalty_scale: float,
+        reach_target_bonus: float,
+        dist_tolerance: float,
+        rot_tolerance: float,
+    ):
+        # distance from ee to the target
+        target_dist = torch.norm(franka_ee_pos - target_pos, p=2, dim=-1)
+        rot_dist = rotation_distance(franka_ee_rot, target_rot)
+
+        dist_rew = target_dist * dist_reward_scale
+        rot_rew = 1.0 / (torch.abs(rot_dist) + rot_eps) * rot_reward_scale
+
+        # regularization on the actions (summed for each environment)
+        action_rew = torch.norm(actions - last_actions, p=2, dim=-1) * action_penalty_scale
+
+        # eposide_length 相关惩罚
+        eposide_length_penalty = eposide_length_buf * eposide_length_penalty_scale
+
+        # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
+        reward = dist_rew + rot_rew + action_rew + eposide_length_penalty  # reward的shape为(num_envs, )
+
+        # Find out which envs hit the target and update successes count
+        dist_successes = torch.where(
+            target_dist <= dist_tolerance,
+            torch.ones_like(reset_goal_buf),
+            torch.zeros_like(reset_goal_buf),
+        )
+        rot_successes = torch.where(
+            torch.abs(rot_dist) <= rot_tolerance,
+            torch.ones_like(reset_goal_buf),
+            torch.zeros_like(reset_goal_buf),
+        )
+        target_resets = torch.where(
+            dist_successes + rot_successes == 2,
+            torch.ones_like(reset_goal_buf),
+            torch.zeros_like(reset_goal_buf),
+        )
+
+        successes = successes + target_resets
+
+        # Success bonus: orientation is within `success_tolerance` of goal orientation
+        reward = torch.where(target_resets == 1, reward + reach_target_bonus, reward)
+
+        return reward, successes, target_resets
 
 
 """
 Helper function
 """
-
-
-@torch.jit.script
-def compute_rewards(
-    ee_pos_l: torch.Tensor,
-    ee_quat_l: torch.Tensor,
-    target_pos_l: torch.Tensor,
-    target_quat_l: torch.Tensor,
-    robot_dof_vel: torch.Tensor,
-    robot_dof_acc: torch.Tensor,
-    dist_reward_weight: float,
-    quat_reward_weight: float,
-    dof_vel_penalty_weight: float,
-    dof_acc_penalty_weight: float,
-    eposide_lengths_penalty_weight: float,
-    reach_target_bonus: float,
-    task_fail_penalty: float,
-    dist_std: float,
-    quat_std: float,
-    dist_tolerance: float,
-    quat_tolerance: float,
-    successes: torch.Tensor,
-    reset_goal_buf: torch.Tensor,
-    eposide_length_buf: torch.Tensor,
-    max_eposide_length: int,
-):
-    # distance reward
-    ee_target_dist = torch.norm(ee_pos_l - target_pos_l, p=2, dim=-1)
-    ee_target_dist_reward = 1 - torch.tanh(ee_target_dist / dist_std)
-
-    # quat reward
-    ee_target_quat_dist = rotation_distance(ee_quat_l, target_quat_l)
-    ee_target_quat_dist_reward = 1 - torch.tanh(ee_target_quat_dist / quat_std)
-
-    # joint vel penalty
-    dof_vel_penalty = torch.sum(torch.square(robot_dof_vel), dim=-1)
-
-    # joint acc penalty
-    dof_acc_penalty = torch.sum(torch.square(robot_dof_acc), dim=-1)
-
-    # eposide_length penalty
-    eposide_length_penalty = eposide_length_buf
-
-    reward = (
-        ee_target_dist_reward * dist_reward_weight
-        + ee_target_quat_dist_reward * quat_reward_weight
-        + dof_vel_penalty * dof_vel_penalty_weight
-        + dof_acc_penalty * dof_acc_penalty_weight
-        + eposide_length_penalty * eposide_lengths_penalty_weight
-    )
-
-    # Find out which envs hit the target and update successes count
-    task_complete = (ee_target_dist <= dist_tolerance) & (ee_target_quat_dist <= quat_tolerance)
-
-    target_resets = torch.where(
-        task_complete,
-        torch.ones_like(reset_goal_buf),
-        torch.zeros_like(reset_goal_buf),
-    )
-
-    successes = successes + target_resets
-
-    # Success bonus: orientation is within `success_tolerance` of goal orientation
-    reward = torch.where(task_complete, reward + reach_target_bonus, reward)
-
-    # fail penalty
-    task_fail = ((ee_target_dist > dist_tolerance) | (ee_target_quat_dist > quat_tolerance)) & (
-        eposide_length_buf == max_eposide_length - 1
-    )
-    reward = torch.where(task_fail, reward + task_fail_penalty, reward)
-
-    return reward, successes, target_resets
 
 
 def generate_random_quat_with_z_in_hyposphere(num_samples: int, device: str):

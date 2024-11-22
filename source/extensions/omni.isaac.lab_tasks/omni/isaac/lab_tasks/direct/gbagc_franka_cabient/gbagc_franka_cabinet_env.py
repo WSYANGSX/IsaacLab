@@ -209,6 +209,16 @@ class GbagcFrankaCabinetEnvCfg(DirectRLEnvCfg):
         },
     )
 
+    # subgoals relative
+    subgoals = {
+        "handle": [
+            [0.0, 0.0, -0.05, 1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -0.36, 1.0, 0.0, 0.0, 0.0],
+        ]
+    }
+    thresholds = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.05, 0.0]]}
+
     # reward scales
     subgoal_bonus = 50.0
     task_complete_bonus = 20.0
@@ -264,16 +274,8 @@ class GbagcFrankaCabinetEnv(DirectRLEnv):
         self.prev_actions = torch.zeros_like(self.actions)
 
         # subgoals relative
-        subgoals = {
-            "handle": [
-                [0.0, 0.0, -0.05, 1.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, -0.36, 1.0, 0.0, 0.0, 0.0],
-            ]
-        }
-        threshold = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.05, 0.0]]}
         self.subgoal_planner = SubgoalPlanner(
-            subgoals=subgoals, thresholds=threshold, num_envs=self.num_envs, device=self.device
+            subgoals=self.cfg.subgoals, thresholds=self.cfg.thresholds, num_envs=self.num_envs, device=self.device
         )
 
         # low-level model
@@ -494,19 +496,16 @@ def _compute_rewards(
 ) -> torch.Tensor:
     # action change penalty
     action_rate_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1) * action_penalty_weight
-    print("action rewards:", action_rate_penalty)
 
     # bonus for reaching subgoal
     if subgoal_control_mode == "pose":
         subgoal_rewards = torch.where(
-            (subgoal_dist <= threshold[:, 0]) & (subgoal_rot_dist <= threshold[:, 1]),
+            (subgoal_dist <= threshold[:, 0]) & (subgoal_rot_dist <= threshold[:, 1]) & (subgoal_finished == 0),
             subgoal_bonus,
             0,
         )
     else:
-        print(subgoal_dist <= threshold[:, 0])
-        subgoal_rewards = torch.where((subgoal_dist <= threshold[:, 0]), subgoal_bonus, 0)
-    print("subgoal rewards: ", subgoal_rewards)
+        subgoal_rewards = torch.where((subgoal_dist <= threshold[:, 0]) & (subgoal_finished == 0), subgoal_bonus, 0)
 
     rewards = action_rate_penalty + subgoal_rewards
 

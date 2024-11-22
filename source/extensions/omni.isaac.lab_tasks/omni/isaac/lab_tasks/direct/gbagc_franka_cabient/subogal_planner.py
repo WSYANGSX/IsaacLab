@@ -123,8 +123,8 @@ class SubgoalPlanner:
         self.subgoals_indices = self.subgoals_indices + subgoal_reached
         self.dones = torch.where(
             self.subgoals_indices == sum(self.single_subgoals_length),
-            torch.ones_like(self.dones, dtype=torch.bool),
-            self.dones,
+            torch.ones_like(self.dones),
+            torch.zeros_like(self.dones),
         )
 
         self.subgoals_indices.clamp_(max=sum(self.single_subgoals_length) - 1)

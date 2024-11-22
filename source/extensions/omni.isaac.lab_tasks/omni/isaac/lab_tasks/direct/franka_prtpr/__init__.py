@@ -9,44 +9,39 @@ Franka-Prtpr environment.
 import gymnasium as gym
 
 from . import agents
-from .manipulation_sphere_env import (
-    ManipulationSphereEnv,
-    ManipulationSpherePlayEnv,
-    ManipulationSphereEnvCfg,
-)
-from .joint_space_env import JointSpaceEnv, JointSpacePlayEnv, JointSpaceEnvCfg
+
 ##
 # Register Gym environments.
 ##
 
 # MLP Train
 gym.register(
-    id="Isaac-FrankaPrtpr-Direct-ManipulationSphere-v0",
-    entry_point="omni.isaac.lab_tasks.direct.franka_prtpr:ManipulationSphereEnv",
+    id="Isaac-Franka_Prtpr-Direct-ManipulationSphere-v0",
+    entry_point=f"{__name__}.manipulation_sphere_env:ManipulationSphereEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": ManipulationSphereEnvCfg,
+        "env_cfg_entry_point": f"{__name__}.manipulation_sphere_env:ManipulationSphereEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )
 
 gym.register(
-    id="Isaac-FrankaPrtpr-Direct-JointSpace-v0",
-    entry_point="omni.isaac.lab_tasks.direct.franka_prtpr:JointSpaceEnv",
+    id="Isaac-Franka_Prtpr-Direct-JointSpace-v0",
+    entry_point=f"{__name__}.joint_space_env:JointSpaceEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": JointSpaceEnvCfg,
+        "env_cfg_entry_point": f"{__name__}.joint_space_env:JointSpaceEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_jointspace_cfg.yaml",
     },
 )
 
 # LSTM Train
 gym.register(
-    id="Isaac-FrankaPrtpr-Direct-Lstm-ManipulationSphere",
-    entry_point="omni.isaac.lab_tasks.direct.franka_prtpr:ManipulationSphereEnv",
+    id="Isaac-Franka_Prtpr-Direct-ManipulationSphere-Lstm",
+    entry_point=f"{__name__}.manipulation_sphere_env:ManipulationSphereEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": ManipulationSphereEnvCfg,
+        "env_cfg_entry_point": f"{__name__}.manipulation_sphere_env:ManipulationSphereEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_lstm_cfg.yaml",
     },
 )
@@ -54,21 +49,21 @@ gym.register(
 
 # Play
 gym.register(
-    id="Isaac-FrankaPrtpr-Direct-ManipulationSphere-Play-v0",
-    entry_point="omni.isaac.lab_tasks.direct.franka_prtpr:ManipulationSpherePlayEnv",
+    id="Isaac-Franka_Prtpr-Direct-ManipulationSphere-Play-v0",
+    entry_point=f"{__name__}.manipulation_sphere_env:ManipulationSphereEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": ManipulationSphereEnvCfg,
+        "env_cfg_entry_point": f"{__name__}.manipulation_sphere_env:ManipulationSphereEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )
 
 gym.register(
-    id="Isaac-FrankaPrtpr-Direct-JointSpace-Play-v0",
-    entry_point="omni.isaac.lab_tasks.direct.franka_prtpr:JointSpacePlayEnv",
+    id="Isaac-Franka_Prtpr-Direct-JointSpace-Play-v0",
+    entry_point=f"{__name__}.joint_space_env:JointSpaceEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": JointSpaceEnvCfg,
+        "env_cfg_entry_point": f"{__name__}.joint_space_env:JointSpaceEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_jointspace_cfg.yaml",
     },
 )
