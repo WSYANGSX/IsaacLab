@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -9,7 +11,6 @@ from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.resources.schedulers.torch import KLAdaptiveLR
-from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 
@@ -34,9 +35,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 256), nn.ELU(), nn.Linear(256, 128), nn.ELU(), nn.Linear(128, 64), nn.ELU()
-        )
+        self.net = nn.Sequential(nn.Linear(self.num_observations, 128), nn.ELU(), nn.Linear(128, 64), nn.ELU())
 
         self.mean_layer = nn.Linear(64, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
@@ -60,7 +59,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Gbagc-Cabinet_Opening-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -107,7 +106,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Cabient_Opening-Direct-PPO-Dense"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Gbagc-Cabinet_Opening-v0"
 
 agent = PPO(
     models=models,
@@ -119,9 +118,32 @@ agent = PPO(
 )
 
 
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 75000, "headless": False}
-trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+models_path = "./runs/torch/Isaac-Gbagc-Cabinet_Opening-v0/1/checkpoints"
+models_list = os.listdir(models_path)
+sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
-# start training
-trainer.train()
+succ_rate = []
+
+for model in sorted_model_names:
+    agent.load(os.path.join(models_path, model))
+
+    states, infos = env.reset()
+
+    for i in range(env.max_episode_length - 2):  # env eposide-length setting
+        # state-preprocessor + policy
+        with torch.no_grad():
+            states = agent._state_preprocessor(states)
+            actions = agent.policy.act({"states": states}, role="policy")[0]
+
+        # step the environment
+        next_states, rewards, terminated, truncated, infos = env.step(actions)
+
+        # render the environment
+        env.render()
+
+        states = next_states
+
+    succ_rate.append((sum(env.successes) / env.num_envs).item())
+
+print(succ_rate)
+env.close()

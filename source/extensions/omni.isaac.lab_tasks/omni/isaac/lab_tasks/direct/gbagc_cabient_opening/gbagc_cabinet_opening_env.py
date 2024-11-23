@@ -105,7 +105,7 @@ class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
             "panda_hand": ImplicitActuatorCfg(
                 joint_names_expr=["panda_finger_joint.*"],
                 effort_limit=200.0,
-                velocity_limit=0.2,
+                velocity_limit=0.3,
                 stiffness=2e3,
                 damping=1e2,
             ),
@@ -213,12 +213,11 @@ class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
     subgoals = {
         "handle": [
             [0.0, 0.0, -0.05, 1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, -0.2, 1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, -0.36, 1.0, 0.0, 0.0, 0.0],
         ]
     }
-    thresholds = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.05, 0.0]]}
+    thresholds = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.02, 0.0]]}
 
     # reward scales
     subgoal_bonus = 50.0
@@ -284,12 +283,15 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         checkpoint_path = (
             "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v2/nn/best_model.pth"
         )
-        self.prtpr_agent = PrtprAgent(self, "Isaac-Franka_Prtpr-Direct-JointSpace-v0", self.device, checkpoint_path)
+        self.prtpr_agent = PrtprAgent("Isaac-Franka_Prtpr-Direct-JointSpace-v0", self.device, checkpoint_path)
 
-        self.action_scale = torch.tensor(self.prtpr_agent.env_cfg["action_scale"], device=self.device)
+        self.action_scale = torch.tensor(self.prtpr_agent.env_cfg.action_scale, device=self.device)
 
         # subgoal visualization
         self.subgoal_visualization = VisualizationMarkers(self.cfg.subgoal_visualization)
+
+        # success rate
+        self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
     def _setup_scene(self):
         # robot
@@ -323,7 +325,7 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         self.prev_actions[:] = self.actions
-        self.actions[:] = actions
+        self.actions[:] = torch.clamp(actions, min=-1, max=1)
 
         arm_actions = self.actions[:, 0].clone().view(-1, 1)
         arm_actions = torch.where(arm_actions >= 0, torch.ones_like(arm_actions), torch.zeros_like(arm_actions))
@@ -362,7 +364,7 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         return terminated, truncated
 
     def _get_rewards(self) -> torch.Tensor:
-        return _compute_rewards(
+        reward, self.successes = _compute_rewards(
             self.actions,
             self.prev_actions,
             self.ee_subgoals_dist,
@@ -374,7 +376,10 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
             self.cfg.action_penalty_weight,
             self.subgoal_control_mode,
             self.subgoal_planner.dones,
+            self.successes,
         )
+
+        return reward
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         super()._reset_idx(env_ids)  # type: ignore
@@ -409,6 +414,8 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
         self.actions[env_ids] = 0
         self.prev_actions[env_ids] = 0
+
+        self.successes[env_ids] = 0
 
     def _get_low_level_observations(self) -> dict:
         ll_obs = torch.cat(
@@ -495,7 +502,8 @@ def _compute_rewards(
     action_penalty_weight: float,
     subgoal_control_mode: str,
     subgoal_finished: torch.Tensor,
-) -> torch.Tensor:
+    successes: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     # action change penalty
     action_rate_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1) * action_penalty_weight
 
@@ -516,4 +524,10 @@ def _compute_rewards(
     rewards = torch.where(drawer_dof_pos > 0.2, rewards + 10, rewards)
     rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
 
-    return rewards
+    successes = torch.where(
+        drawer_dof_pos > 0.35,
+        torch.ones_like(drawer_dof_pos),
+        successes,
+    )
+
+    return rewards, successes
