@@ -54,7 +54,7 @@ class Critic(DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Gbagc-CabinetOpening-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Gbagc-Cabinet_Opening-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -90,7 +90,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 800
 cfg["experiment"]["checkpoint_interval"] = 8000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Gbagc-CabinetOpening-v0"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Gbagc-Cabinet_Opening-v0"
 
 agent = DDPG(
     models=models1,
