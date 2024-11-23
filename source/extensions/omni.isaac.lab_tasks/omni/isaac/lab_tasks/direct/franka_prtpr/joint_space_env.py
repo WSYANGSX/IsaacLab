@@ -551,7 +551,7 @@ class JointSpacePlayEnv(JointSpaceEnv):
     ):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self.cfg.dist_tolerance = 0.02
+        self.cfg.dist_tolerance = 0.005
         self.cfg.episode_length_s = 12
 
     def _curriculum(self):
