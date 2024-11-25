@@ -222,9 +222,9 @@ class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
     thresholds = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.02, 0.0]]}
 
     # reward scales
-    subgoal_bonus = 50.0
-    task_complete_bonus = 20.0
-    action_penalty_weight = -0.01
+    subgoal_bonus = 10
+    task_complete_bonus = 2
+    action_penalty_weight = -1e-3
 
     # subgoal control mode
     subgoal_control_mode: Literal["position", "pose"] = "position"
@@ -549,8 +549,8 @@ def _compute_rewards(
     rewards = action_rate_penalty + subgoal_rewards
 
     # bonus for opening drawer
-    rewards = torch.where(drawer_dof_pos > 0.01, rewards + 5, rewards)
-    rewards = torch.where(drawer_dof_pos > 0.2, rewards + 10, rewards)
+    rewards = torch.where(drawer_dof_pos > 0.01, rewards + 0.25, rewards)
+    rewards = torch.where(drawer_dof_pos > 0.2, rewards + 0.25, rewards)
     rewards = torch.where(drawer_dof_pos > 0.35, rewards + task_complete_bonus, rewards)
 
     successes = torch.where(
