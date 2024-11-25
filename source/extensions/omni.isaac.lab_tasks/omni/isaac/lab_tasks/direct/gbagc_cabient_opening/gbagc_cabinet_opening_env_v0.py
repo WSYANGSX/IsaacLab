@@ -36,16 +36,15 @@ torch.set_printoptions(threshold=torch.inf)
 class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 8.3333  # 500 timesteps
-    low_level_decimation = 4
-    decimation = low_level_decimation * 3
+    decimation = 4
     action_space = 2
-    observation_space = 38
+    observation_space = 36
     state_space = 0
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
-        render_interval=low_level_decimation,
+        render_interval=decimation,
         disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -215,11 +214,10 @@ class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
         "handle": [
             [0.0, 0.0, -0.05, 1.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, -0.20, 1.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, -0.36, 1.0, 0.0, 0.0, 0.0],
         ]
     }
-    thresholds = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.02, 0.0]]}
+    thresholds = {"handle": [[0.01, 0.0], [0.01, 0.0], [0.02, 0.0]]}
 
     # reward scales
     subgoal_bonus = 50.0
@@ -249,15 +247,7 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.dt = self.cfg.sim.dt * self.cfg.decimation
-        self.low_level_dt = self.cfg.sim.dt * self.cfg.low_level_decimation
-
         self.subgoal_control_mode = self.cfg.subgoal_control_mode
-
-        # low-level model
-        checkpoint_path = (
-            "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v2/nn/best_model.pth"
-        )
-        self.prtpr_agent = PrtprAgent("Isaac-Franka_Prtpr-Direct-JointSpace-v0", self.device, checkpoint_path)
 
         # robot relative propertities
         self.arm_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"], body_names=["panda_hand"])
@@ -275,7 +265,6 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
         self.gripper_open_command = self.robot_dof_upper_limits[-1]
         self.gripper_close_command = self.robot_dof_lower_limits[-1]
-        self.action_scale = torch.tensor(self.prtpr_agent.env_cfg.action_scale, device=self.device)
 
         # cabinet
         self.drawer_joint_idx = self._cabinet.find_joints("drawer_top_joint")[0][0]
@@ -284,23 +273,25 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)  # type: ignore
         self.prev_actions = torch.zeros_like(self.actions)
-        self.arm_actions = torch.zeros((self.num_envs, 1), device=self.device)
-        self.gripper_actions = torch.zeros_like(self.arm_actions)
-        self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self.low_level_actions = torch.zeros(
-            (self.num_envs, self.prtpr_agent.actions_num), device=self.device, dtype=torch.bool
-        )
 
         # subgoals relative
         self.subgoal_planner = SubgoalPlanner(
             subgoals=self.cfg.subgoals, thresholds=self.cfg.thresholds, num_envs=self.num_envs, device=self.device
         )
 
+        # low-level model
+        checkpoint_path = (
+            "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v2/nn/best_model.pth"
+        )
+        self.prtpr_agent = PrtprAgent("Isaac-Franka_Prtpr-Direct-JointSpace-v0", self.device, checkpoint_path)
+
+        self.action_scale = torch.tensor(self.prtpr_agent.env_cfg.action_scale, device=self.device)
+
         # subgoal visualization
         self.subgoal_visualization = VisualizationMarkers(self.cfg.subgoal_visualization)
 
-        # flags
-        self.low_level_counter = 0
+        # success rate
+        self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
     def _setup_scene(self):
         # robot
@@ -334,43 +325,34 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         self.prev_actions[:] = self.actions
-        self.actions[:] = actions
+        self.actions[:] = torch.clamp(actions, min=-1, max=1)
 
-        self.arm_actions[:] = torch.where(self.actions[:, 0] >= 0, 1, 0).view(-1, 1)
-        self.gripper_actions[:] = self.actions[:, 1].view(-1, 1)
+        arm_actions = self.actions[:, 0].clone().view(-1, 1)
+        arm_actions = torch.where(arm_actions >= 0, torch.ones_like(arm_actions), torch.zeros_like(arm_actions))
 
-    def _apply_action(self):
-        # low level action
-        if self.low_level_counter % self.cfg.low_level_decimation == 0:
-            ll_obs = self._get_low_level_observations()
-            if self.prtpr_agent.has_batch_dimension is False:
-                self.prtpr_agent.get_batch_size(ll_obs["ll_obs"])
-            low_level_actions = torch.clamp(
-                self.prtpr_agent.get_action(ll_obs["ll_obs"], is_deterministic=True),
-                -self.prtpr_agent.clip_actions,
-                self.prtpr_agent.clip_actions,
-            )
-            self.arm_targets = (
-                self._robot.data.joint_pos[:, self.arm_joint_idx]
-                + (self.robot_dof_speed_scales * self.low_level_dt * low_level_actions * self.action_scale)
-                * self.arm_actions
-            )
-            self.low_level_counter = 0
+        ll_obs = self._get_low_level_observations()
+        print(ll_obs)
+        if self.prtpr_agent.has_batch_dimension is False:
+            self.prtpr_agent.get_batch_size(ll_obs["ll_obs"])
+        low_level_actions = self.prtpr_agent.get_action(ll_obs["ll_obs"])
 
-        self.gripper_targets = (
-            torch.where(self.gripper_actions >= 0, self.gripper_open_command, self.gripper_close_command)
+        arm_targets = (
+            self._robot.data.joint_pos[:, self.arm_joint_idx]
+            + (self.robot_dof_speed_scales * self.dt * low_level_actions * self.action_scale) * arm_actions
+        )
+
+        gripper_targets = (
+            torch.where(self.actions[:, 1] >= 0, self.gripper_open_command, self.gripper_close_command)
             .view(-1, 1)
             .repeat(1, 2)
         )
 
         self.robot_dof_targets = torch.clamp(
-            torch.cat((self.arm_targets, self.gripper_targets), dim=-1),
-            self.robot_dof_lower_limits,
-            self.robot_dof_upper_limits,
+            torch.cat((arm_targets, gripper_targets), dim=-1), self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
-        self._robot.set_joint_position_target(self.robot_dof_targets)
 
-        self.low_level_counter += 1
+    def _apply_action(self):
+        self._robot.set_joint_position_target(self.robot_dof_targets)
 
     # post-physics step calls
 
@@ -436,8 +418,6 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
         self.successes[env_ids] = 0
 
-        self.low_level_counter = 0
-
     def _get_low_level_observations(self) -> dict:
         self._compute_intermediate_values()
 
@@ -447,15 +427,15 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
                 self.ee_quat_l,
                 self.subgoal_pos_l,
                 self.subgoal_quat_l,
-                self.ee_subgoals_dist.view(-1, 1),
-                self.ee_subgoals_quat_dist.view(-1, 1),
+                self.ee_subgoals_dist.unsqueeze(-1),
+                self.ee_subgoals_quat_dist.unsqueeze(-1),
                 self.robot_dof_pos[:, self.arm_joint_idx],
                 self.robot_dof_vel[:, self.arm_joint_idx],
                 self.ee_lin_vel,
             ),
             dim=-1,
         )
-        return {"ll_obs": torch.clamp(ll_obs, -5, 5)}
+        return {"ll_obs": ll_obs}
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
@@ -466,16 +446,15 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
                 self.ee_quat_l,
                 self.handle_pos_l,
                 self.handle_quat_l,
-                self.drawer_dof_pos.view(-1, 1),
-                self.drawer_dof_vel.view(-1, 1),
-                self.ee_subgoals_dist.view(-1, 1),
-                self.ee_subgoals_quat_dist.view(-1, 1),
-                self.actions,
+                self.drawer_dof_pos.unsqueeze(-1),
+                self.drawer_dof_vel.unsqueeze(-1),
+                self.ee_subgoals_dist.unsqueeze(-1),
+                self.ee_subgoals_quat_dist.unsqueeze(-1),
             ),
             dim=-1,
         )
 
-        return {"policy": torch.clamp(obs, -5, 5)}
+        return {"policy": obs}
 
     # auxiliary methods
 

@@ -76,15 +76,15 @@ models1["target_critic"] = Critic(env.observation_space, env.action_space, devic
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#configuration-and-hyperparameters
 cfg = DDPG_DEFAULT_CONFIG.copy()
-cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.1, base_scale=0.5, device=device)
+cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.2, base_scale=1, device=device)
 cfg["gradient_steps"] = 1
 cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
 cfg["polyak"] = 0.005
 cfg["actor_learning_rate"] = 5e-4
 cfg["critic_learning_rate"] = 5e-4
-cfg["random_timesteps"] = 80
-cfg["learning_starts"] = 80
+cfg["random_timesteps"] = 0
+cfg["learning_starts"] = 0
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
