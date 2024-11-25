@@ -275,7 +275,7 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
         self.gripper_open_command = self.robot_dof_upper_limits[-1]
         self.gripper_close_command = self.robot_dof_lower_limits[-1]
-        self.action_scale = torch.tensor(self.prtpr_agent.env_cfg.action_scale, device=self.device)
+        self.action_scale = torch.tensor(self.prtpr_agent.env_cfg.action_scale, device=self.device)  # type: ignore
 
         # cabinet
         self.drawer_joint_idx = self._cabinet.find_joints("drawer_top_joint")[0][0]
@@ -439,7 +439,16 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         self.low_level_counter = 0
 
     def _get_low_level_observations(self) -> dict:
-        self._compute_intermediate_values()
+        self.ee_pos_l, self.ee_quat_l = (
+            self._ee_frame.data.target_pos_source[:, 0, :],
+            self._ee_frame.data.target_quat_source[:, 0, :],
+        )
+
+        self.subgoal_pos_l = self.subgoal_planner.current_subgoals[:, :3]
+        self.subgoal_quat_l = self.subgoal_planner.current_subgoals[:, 3:7]
+
+        self.ee_subgoals_dist = torch.norm(self.subgoal_pos_l - self.ee_pos_l, p=2, dim=-1)
+        self.ee_subgoals_quat_dist = rotation_distance(self.ee_quat_l, self.subgoal_quat_l)
 
         ll_obs = torch.cat(
             (
@@ -449,19 +458,20 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
                 self.subgoal_quat_l,
                 self.ee_subgoals_dist.view(-1, 1),
                 self.ee_subgoals_quat_dist.view(-1, 1),
-                self.robot_dof_pos[:, self.arm_joint_idx],
-                self.robot_dof_vel[:, self.arm_joint_idx],
-                self.ee_lin_vel,
+                self._robot.data.joint_pos[:, self.arm_joint_idx],
+                self._robot.data.joint_vel[:, self.arm_joint_idx],
+                self._robot.data.body_lin_vel_w[:, self.hand_link_idx, :],
             ),
             dim=-1,
         )
+
         return {"ll_obs": torch.clamp(ll_obs, -5, 5)}
 
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
-                self.robot_dof_pos,
-                self.robot_dof_vel,
+                self._robot.data.joint_pos,
+                self._robot.data.joint_vel,
                 self.ee_pos_l,
                 self.ee_quat_l,
                 self.handle_pos_l,
@@ -480,23 +490,18 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
     # auxiliary methods
 
     def _compute_intermediate_values(self):
-        self.robot_dof_pos = self._robot.data.joint_pos
-        self.robot_dof_vel = self._robot.data.joint_vel
-
-        self.drawer_dof_pos = self._cabinet.data.joint_pos[:, self.drawer_joint_idx]
-        self.drawer_dof_vel = self._cabinet.data.joint_vel[:, self.drawer_joint_idx]
-
         self.ee_pos_l, self.ee_quat_l = (
             self._ee_frame.data.target_pos_source[:, 0, :],
             self._ee_frame.data.target_quat_source[:, 0, :],
         )
 
+        self.drawer_dof_pos = self._cabinet.data.joint_pos[:, self.drawer_joint_idx]
+        self.drawer_dof_vel = self._cabinet.data.joint_vel[:, self.drawer_joint_idx]
+
         self.handle_pos_l, self.handle_quat_l = (
             self._handle_frame.data.target_pos_source[:, 0, :],
             self._handle_frame.data.target_quat_source[:, 0, :],
         )
-
-        self.ee_lin_vel = self._robot.data.body_lin_vel_w[:, self.hand_link_idx, :]
 
         self.subgoal_pos_l = self.subgoal_planner.current_subgoals[:, :3]
         self.subgoal_quat_l = self.subgoal_planner.current_subgoals[:, 3:7]
