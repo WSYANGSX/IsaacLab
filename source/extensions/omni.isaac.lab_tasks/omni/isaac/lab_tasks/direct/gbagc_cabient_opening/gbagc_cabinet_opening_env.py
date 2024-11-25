@@ -28,9 +28,6 @@ from .prtpr_agent import PrtprAgent
 ##
 from omni.isaac.lab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
-# set print style
-torch.set_printoptions(threshold=torch.inf)
-
 
 @configclass
 class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
@@ -470,16 +467,14 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
-                self._robot.data.joint_pos,
-                self._robot.data.joint_vel,
                 self.ee_pos_l,
                 self.ee_quat_l,
                 self.handle_pos_l,
                 self.handle_quat_l,
-                self.drawer_dof_pos.view(-1, 1),
-                self.drawer_dof_vel.view(-1, 1),
-                self.ee_subgoals_dist.view(-1, 1),
-                self.ee_subgoals_quat_dist.view(-1, 1),
+                self.subgoal_pos_l,
+                self.subgoal_quat_l,
+                self._robot.data.joint_pos,
+                self._robot.data.joint_vel,
                 self.actions,
             ),
             dim=-1,
