@@ -1,5 +1,3 @@
 import torch
 
-a = 0
-
-print(a % 2)
+print(torch.get_default_dtype())

@@ -36,7 +36,7 @@ class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
     low_level_decimation = 4
     decimation = low_level_decimation * 3
     action_space = 2
-    observation_space = 38
+    observation_space = 41
     state_space = 0
 
     # simulation
@@ -221,7 +221,7 @@ class GbagcCabinetOpeningEnvCfg(DirectRLEnvCfg):
     # reward scales
     subgoal_bonus = 10
     task_complete_bonus = 2
-    action_penalty_weight = -1e-3
+    action_penalty_weight = -1e-4
 
     # subgoal control mode
     subgoal_control_mode: Literal["position", "pose"] = "position"
@@ -281,8 +281,12 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)  # type: ignore
         self.prev_actions = torch.zeros_like(self.actions)
+
         self.arm_actions = torch.zeros((self.num_envs, 1), device=self.device)
+        self.prev_arm_actions = torch.zeros_like(self.arm_actions)
         self.gripper_actions = torch.zeros_like(self.arm_actions)
+        self.prev_gripper_actions = torch.zeros_like(self.arm_actions)
+
         self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.low_level_actions = torch.zeros(
             (self.num_envs, self.prtpr_agent.actions_num), device=self.device, dtype=torch.bool
@@ -333,8 +337,11 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
         self.prev_actions[:] = self.actions
         self.actions[:] = actions
 
+        self.prev_arm_actions[:] = self.arm_actions
+        self.prev_gripper_actions[:] = self.gripper_actions
+
         self.arm_actions[:] = torch.where(self.actions[:, 0] >= 0, 1, 0).view(-1, 1)
-        self.gripper_actions[:] = self.actions[:, 1].view(-1, 1)
+        self.gripper_actions[:] = torch.where(self.actions[:, 1] >= 0, 1, 0).view(-1, 1).view(-1, 1)
 
     def _apply_action(self):
         # low level action
@@ -355,7 +362,7 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
             self.low_level_counter = 0
 
         self.gripper_targets = (
-            torch.where(self.gripper_actions >= 0, self.gripper_open_command, self.gripper_close_command)
+            torch.where(self.gripper_actions == 1, self.gripper_open_command, self.gripper_close_command)
             .view(-1, 1)
             .repeat(1, 2)
         )
@@ -381,8 +388,10 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         reward, self.successes = _compute_rewards(
-            self.actions,
-            self.prev_actions,
+            self.arm_actions,
+            self.prev_arm_actions,
+            self.gripper_actions,
+            self.prev_gripper_actions,
             self.ee_subgoals_dist,
             self.ee_subgoals_quat_dist,
             self.threshold,
@@ -428,8 +437,9 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
             env_ids=env_ids,
         )
 
-        self.actions[env_ids] = 0
         self.prev_actions[env_ids] = 0
+        self.prev_arm_actions[env_ids] = 0
+        self.prev_gripper_actions[env_ids] = 0
 
         self.successes[env_ids] = 0
 
@@ -515,8 +525,10 @@ class GbagcCabinetOpeningEnv(DirectRLEnv):
 
 @torch.jit.script
 def _compute_rewards(
-    actions: torch.Tensor,
-    prev_actions: torch.Tensor,
+    arm_actions: torch.Tensor,
+    prev_arm_actions: torch.Tensor,
+    gripper_actions: torch.Tensor,
+    prev_gripper_actions: torch.Tensor,
     ee_subgoal_dist: torch.Tensor,
     ee_subgoal_quat_dist: torch.Tensor,
     threshold: torch.Tensor,
@@ -529,7 +541,16 @@ def _compute_rewards(
     successes: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     # action change penalty
-    action_rate_penalty = torch.sum(torch.square(actions - prev_actions), dim=-1) * action_penalty_weight
+    action_rate_penalty = (
+        torch.sum(
+            torch.square(
+                torch.cat((arm_actions, gripper_actions), dim=-1)
+                - torch.cat((prev_arm_actions, prev_gripper_actions), dim=-1)
+            ),
+            dim=-1,
+        )
+        * action_penalty_weight
+    )
 
     # bonus for reaching subgoal
     if subgoal_control_mode == "pose":
