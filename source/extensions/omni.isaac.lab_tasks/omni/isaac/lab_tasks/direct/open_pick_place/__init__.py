@@ -9,8 +9,8 @@ from .open_pick_place_env import OpenPickPlaceEnv, OpenPickPlaceEnvCfg
 
 # MLP Train
 gym.register(
-    id="Isaac-Franka-OpenPickPlace-Direct-v0",
-    entry_point="omni.isaac.lab_tasks.direct.franka_open_pick_place:OpenPickPlaceEnv",
+    id="Isaac-Open_Pick_Place-Direct-v0",
+    entry_point="omni.isaac.lab_tasks.direct.open_pick_place:OpenPickPlaceEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": OpenPickPlaceEnvCfg,

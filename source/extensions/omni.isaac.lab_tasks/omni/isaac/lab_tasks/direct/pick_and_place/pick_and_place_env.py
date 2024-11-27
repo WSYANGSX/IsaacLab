@@ -71,7 +71,7 @@ class PickAndPlaceEnvCfg(DirectRLEnvCfg):
             usd_path="omniverse://localhost/Library/my_usd/table/parts/Part_1_JHD.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.5, 0.4)),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.58, 0.42, 0.17)),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.0, -0.04)),
     )
