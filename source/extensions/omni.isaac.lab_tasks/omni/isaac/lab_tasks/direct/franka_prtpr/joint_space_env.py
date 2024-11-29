@@ -24,7 +24,7 @@ from omni.isaac.lab.utils.math import (
     quat_mul,
 )
 from omni.isaac.core.utils.torch import torch_rand_float
-from local_projects.utils.math import rotation_distance, calculate_angle_between_vectors
+from my_projects.utils.math import rotation_distance, calculate_angle_between_vectors
 
 ##
 # Pre-defined configs

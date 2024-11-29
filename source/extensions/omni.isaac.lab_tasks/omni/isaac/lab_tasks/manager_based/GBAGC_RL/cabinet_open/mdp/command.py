@@ -15,7 +15,7 @@ from omni.isaac.lab.managers import CommandTerm, CommandTermCfg
 from omni.isaac.lab.markers import VisualizationMarkers
 from omni.isaac.lab.markers.config import FRAME_MARKER_CFG
 from omni.isaac.lab.utils.configclass import configclass
-from local_projects.utils.math import rotation_distance
+from my_projects.utils.math import rotation_distance
 from omni.isaac.lab.envs.mdp import SceneEntityCfg
 
 if TYPE_CHECKING:

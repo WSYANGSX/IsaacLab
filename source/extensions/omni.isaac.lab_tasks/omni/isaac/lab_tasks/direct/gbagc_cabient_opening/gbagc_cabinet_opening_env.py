@@ -18,7 +18,7 @@ from omni.isaac.lab.sensors.frame_transformer import FrameTransformer, FrameTran
 from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.markers.visualization_markers import VisualizationMarkers, VisualizationMarkersCfg
-from local_projects.utils.math import rotation_distance
+from my_projects.utils.math import rotation_distance
 
 from .subogal_planner import SubgoalPlanner
 from .prtpr_agent import PrtprAgent

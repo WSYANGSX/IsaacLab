@@ -20,7 +20,7 @@ from omni.isaac.lab.utils.math import (
     quat_from_angle_axis,
     quat_mul,
 )
-from local_projects.utils.math import rotation_distance
+from my_projects.utils.math import rotation_distance
 from omni.isaac.core.utils.torch import torch_rand_float
 
 
