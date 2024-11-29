@@ -4,6 +4,7 @@ import os
 import yaml
 import copy
 
+import math
 import torch
 import numpy as np
 import gymnasium as gym
@@ -11,6 +12,7 @@ import gymnasium as gym
 from rl_games.algos_torch import model_builder
 from rl_games.algos_torch import torch_ext
 from rl_games.common.tr_helpers import unsqueeze_obs
+from omni.isaac.lab_tasks.utils import parse_env_cfg
 
 
 @torch.jit.script
@@ -21,57 +23,67 @@ def rescale_actions(low, high, action):
     return scaled_action
 
 
-class PrtprModel(object):
+class PrtprAgent(object):
     """Warpper class for rl_game BasePlayer."""
 
-    def __init__(self, policy_path: str) -> None:
-        self.policy_path = policy_path
+    def __init__(self, task_name: str, device: str | torch.device, checkpoint_path: str) -> None:
+        self.task_name = task_name
+        self.device = device
+        self.checkpoint_path = checkpoint_path
+
+        self.policy_root_path = os.path.split(os.path.split(checkpoint_path)[0])[0]
+        self.policy_root_path = os.path.abspath(self.policy_root_path)
+        print(f"[INFO] Loading experiment from directory: {self.policy_root_path}")
 
         # 加载agent配置参数
-        cfg_path = os.path.join(self.policy_path, "params/agent.yaml")
-        self.agent_cfg = self.load_agent_parameters(cfg_path)
+        agent_cfg_path = os.path.join(self.policy_root_path, "params/agent.yaml")
+        self.agent_cfg = self.load_agent_parameters(agent_cfg_path)
 
-        self.config = self.agent_cfg["params"]["config"]  # type: ignore
-        self.normalize_input = self.config["normalize_input"]
-        self.normalize_value = self.config.get("normalize_value", False)
-        self.env_info = self.agent_cfg["params"].get("env")  # type: ignore
-        self.clip_actions = self.env_info["clip_actions"]  # type: ignore
-        self.clip_observations = self.env_info["clip_observations"]  # type: ignore
-        self.device_name = self.config["device_name"]
+        self.agent_config = self.agent_cfg["params"]["config"]  # type: ignore
+        self.normalize_input = self.agent_config.get("normalize_input", False)
+        self.normalize_value = self.agent_config.get("normalize_value", False)
+        self.clip_actions = self.agent_cfg["params"].get("env").get("clip_actions", math.inf)  # type: ignore
+        self.clip_observations = self.agent_cfg["params"].get("env").get("clip_observations", math.inf)  # type: ignore
+        self.device_name = self.agent_config["device_name"]
         self.device = torch.device(self.device_name)
+        self.num_agents = self.agent_cfg["params"].get("env").get("agents", 1)  # type: ignore
+        self.player_config = self.agent_config.get("player", {})
+        self.has_central_value = self.agent_config.get("central_value_config") is not None
 
-        self.num_agents = self.env_info.get("agents", 1)
+        # 加载环境配置参数
+        self.env_cfg = parse_env_cfg(task_name, device=self.device)
 
+        if self.env_cfg.action_space is not None:
+            self.action_space = self.env_cfg.action_space
+            self.actions_num = self.action_space.shape[0]
+        elif self.env_cfg.num_actions:
+            self.actions_num = self.env_cfg.num_actions
+            self.action_space = gym.spaces.Box(
+                np.ones(self.actions_num, dtype=np.float32) * -self.clip_actions,
+                np.ones(self.actions_num, dtype=np.float32) * self.clip_actions,
+            )
+
+        if self.env_cfg.observation_space is not None:
+            self.observation_space = self.env_cfg.observation_space
+            self.observations_num = self.observation_space.shape[0]
+        elif self.env_cfg.num_observations:
+            self.observations_num = self.env_cfg.num_observations
+            self.observation_space = gym.spaces.Box(
+                np.ones(self.observations_num, dtype=np.float32) * -self.clip_observations,
+                np.ones(self.observations_num, dtype=np.float32) * self.clip_observations,
+            )
+
+        # 配置参数
         self.states = None
-        self.player_config = self.config.get("player", {})
         self.use_cuda = True
         self.batch_size = 1
         self.has_batch_dimension = False
-        self.has_central_value = self.config.get("central_value_config") is not None
 
-        # 加载环境配置参数
-        env_cfg_path = os.path.join(self.policy_path, "params/env.yaml")
-        self.env_cfg = self.load_env_parameters(env_cfg_path)
+        self.actions_low = torch.from_numpy(self.action_space.low.copy()).float().to(self.device)
+        self.actions_high = torch.from_numpy(self.action_space.high.copy()).float().to(self.device)
 
-        self.actions_num = self.env_cfg["num_actions"]  # type: ignore
-        self.obs_num = self.env_cfg["num_observations"]  # type: ignore
-
-        # 配置参数
-        self.action_space = gym.spaces.Box(
-            np.ones(self.actions_num, dtype=np.float32) * -self.clip_actions,
-            np.ones(self.actions_num, dtype=np.float32) * self.clip_actions,
-        )
-        self.observation_space = gym.spaces.Box(
-            np.ones(self.obs_num, dtype=np.float32) * -self.clip_observations,
-            np.ones(self.obs_num, dtype=np.float32) * self.clip_observations,
-        )
-
-        self.actions_low = (
-            torch.from_numpy(self.action_space.low.copy()).float().to(self.device)
-        )
-        self.actions_high = (
-            torch.from_numpy(self.action_space.high.copy()).float().to(self.device)
-        )
+        self.obs_low = torch.from_numpy(self.observation_space.low.copy()).float().to(self.device)
+        self.obs_high = torch.from_numpy(self.observation_space.high.copy()).float().to(self.device)
 
         self.obs_shape = self.observation_space.shape
 
@@ -83,23 +95,22 @@ class PrtprModel(object):
             "actions_num": self.actions_num,
             "input_shape": obs_shape,
             "num_seqs": self.num_agents,
-            "value_size": self.env_info.get("value_size", 1),
+            "value_size": self.agent_cfg["params"].get("env").get("value_size", 1),
             "normalize_value": self.normalize_value,
             "normalize_input": self.normalize_input,
         }
-        self.network = self.config["network"]
+        self.network = self.agent_config["network"]
         self.model = self.network.build(config)
         self.model.to(self.device)
         self.model.eval()
         self.is_rnn = self.model.is_rnn()
 
         # find checkpoint
-        self.checkpoint_path = os.path.join(self.policy_path, "nn/prtpr.pth")
         self.restore(self.checkpoint_path)
 
     def load_networks(self, params):
         builder = model_builder.ModelBuilder()
-        self.config["network"] = builder.load(params)
+        self.agent_config["network"] = builder.load(params)
 
     def load_env_parameters(self, file_path: str):
         # parse the default config file
@@ -182,9 +193,7 @@ class PrtprModel(object):
         if self.is_rnn:
             rnn_states = self.model.get_default_rnn_state()
             self.states = [
-                torch.zeros(
-                    (s.size()[0], self.batch_size, s.size()[2]), dtype=torch.float32
-                ).to(self.device)
+                torch.zeros((s.size()[0], self.batch_size, s.size()[2]), dtype=torch.float32).to(self.device)
                 for s in rnn_states
             ]
 
@@ -201,7 +210,7 @@ class PrtprModel(object):
         if self.normalize_input and "running_mean_std" in weights:
             self.model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
-    def get_batch_size(self, obses, batch_size):
+    def get_batch_size(self, obses, batch_size=1):
         obs_shape = self.obs_shape
         if type(self.obs_shape) is dict:
             if "obs" in obses:
@@ -225,16 +234,18 @@ class PrtprModel(object):
 
 
 if __name__ == "__main__":
-    prtpr = PrtprModel(
-        "/home/yangxf/Ominverse_RL_platform/IsaacLab/logs/rl_games/prtpr/3/"
+    prtpr = PrtprAgent(
+        "Isaac-Franka_Prtpr-Direct-JointSpace-v0",
+        "cuda:0",
+        "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v2/nn/last_franka_prtpr_jointspace_direct_ep_3800_rew_3609.105.pth",
     )
     prtpr.reset()
 
     obs = torch.randn((19, 19), device="cuda:0", dtype=torch.float32)
     # if prtpr.is_rnn:
     #     prtpr.init_rnn()
-    # batch_size = 1
-    # prtpr.get_batch_size(obses=obs, batch_size=batch_size)
-    # print(prtpr.batch_size)
+    batch_size = 1
+    prtpr.get_batch_size(obses=obs, batch_size=batch_size)
+    print(prtpr.batch_size)
     act = prtpr.get_action(obs)
     print(act)
