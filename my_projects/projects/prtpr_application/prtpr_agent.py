@@ -13,6 +13,7 @@ from rl_games.algos_torch import model_builder
 from rl_games.algos_torch import torch_ext
 from rl_games.common.tr_helpers import unsqueeze_obs
 from omni.isaac.lab_tasks.utils import parse_env_cfg
+from my_projects.utils.math import normalize, quat_mul, quat_conjugate, rotation_distance, quat_from_angle_axis
 
 
 @torch.jit.script
@@ -78,6 +79,7 @@ class PrtprAgent(object):
         self.use_cuda = True
         self.batch_size = 1
         self.has_batch_dimension = False
+        self.has_interpolations = False
 
         self.actions_low = torch.from_numpy(self.action_space.low.copy()).float().to(self.device)
         self.actions_high = torch.from_numpy(self.action_space.high.copy()).float().to(self.device)

@@ -41,11 +41,18 @@ from omni.isaac.lab.actuators import ImplicitActuatorCfg
 from omni.isaac.lab.markers import VisualizationMarkersCfg, VisualizationMarkers
 from omni.isaac.lab.sensors import FrameTransformerCfg, FrameTransformer
 from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
+from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKControllerCfg
 
 from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.math import sample_uniform, quat_from_angle_axis, quat_mul
 from omni.isaac.core.utils.torch import torch_rand_float
 from my_projects.utils.math import rotation_distance
+from omni.isaac.lab.utils.math import (
+    sample_uniform,
+    quat_from_angle_axis,
+    quat_mul,
+    subtract_frame_transforms,
+    combine_frame_transforms,
+)
 
 ##
 # Pre-defined configs
@@ -253,6 +260,10 @@ def run_simulator(
     robot: Articulation = scene["robot"]
     ee_frame: FrameTransformer = scene["ee_frame"]
 
+    # Create controller
+    diff_ik_cfg = DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls")
+    diff_ik_controller = DifferentialIKController(diff_ik_cfg, num_envs=scene.num_envs, device=sim.device)
+
     # target
     target_cfg = VisualizationMarkersCfg(
         prim_path="/Visual/Target",
@@ -280,7 +291,7 @@ def run_simulator(
     hand_link_idx = robot_entity_cfg.body_ids[0]  # type: ignore
 
     # load policy
-    checkpoint_path = "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v2/nn/last_franka_prtpr_jointspace_direct_ep_2700_rew_4048.7012"
+    checkpoint_path = "/home/yangxf/my_projects/IsaacLab/logs/rl_games/franka_prtpr_jointspace_direct/v2/nn/last_franka_prtpr_jointspace_direct_ep_2700_rew_4048.7012.pth"
     prtpr_agent = PrtprAgent("Isaac-Franka_Prtpr-Direct-JointSpace-v0", sim.device, checkpoint_path)
 
     # robot parameters
@@ -289,15 +300,21 @@ def run_simulator(
     robot_dof_upper_limits = robot.data.soft_joint_pos_limits[0, :, 1].to(device=sim.device)
     robot_dof_speed_scales = torch.ones_like(robot_dof_lower_limits[: len(arm_joint_idx)])  # type: ignore
 
+    if robot.is_fixed_base:
+        ee_jacobi_idx = robot_entity_cfg.body_ids[0] - 1  # type: ignore
+    else:
+        ee_jacobi_idx = robot_entity_cfg.body_ids[0]  # type: ignore
+
     # data buffer
     dist = []
     rot_dist = []
+    control_model_switch = torch.zeros(scene.num_envs, device=sim.device)
 
     # simulation loop
     while simulation_app.is_running():
         with torch.inference_mode():
             # reset
-            if count % 499 == 0:
+            if count % 500 == 0:
                 if len(dist) != 0 and len(rot_dist) != 0:
                     with pd.ExcelWriter(
                         "my_projects/projects/prtpr_application/data/dist.xlsx",
@@ -324,11 +341,25 @@ def run_simulator(
 
                 # clear internal buffers
                 scene.reset()  # reset对scene中的rigidobject、articulation、sensors分别进行reset,重置其actuator等内部项
-                print("[INFO]: resetting robot state...")
 
                 # reset()之后如果想要获取数据，需要进行step()
                 sim.step()
                 scene.update(sim_dt)
+
+                # compute target hand pose
+                hand_pos_in_ee = torch.tensor((0.0, 0.0, 0.1034), device=sim.device).repeat(scene.num_envs, 1)
+                hand_quat_in_ee = torch.tensor((1.0, 0.0, 0.0, 0.0), device=sim.device).repeat(scene.num_envs, 1)
+
+                target_hand_pos, target_hand_quat = combine_frame_transforms(
+                    target_pos, target_rot, hand_pos_in_ee, hand_quat_in_ee
+                )
+
+                diff_ik_controller.reset()
+                diff_ik_controller.set_command(torch.cat((target_hand_pos, target_hand_quat), dim=-1))
+
+                print("[INFO]: Scene reseted...")
+                print("[INFO]: target_ee_pose:", target_pos, target_rot)
+                print("[INFO]: target_hand_pose:", target_hand_pos, target_hand_quat)
 
             # get observations
             obs = get_observations(robot, ee_frame, hand_link_idx, target_pos, target_rot, dist, rot_dist)
@@ -343,6 +374,28 @@ def run_simulator(
                 robot_dof_upper_limits[:7],
             )
 
+            if any(obs[:, 14] < 0.015):
+                control_model_switch = torch.where(
+                    obs[:, 14] < 0.015, torch.ones_like(control_model_switch), control_model_switch
+                )
+                print(control_model_switch)
+                # obtain quantities from simulation
+                jacobian = robot.root_physx_view.get_jacobians()[:, ee_jacobi_idx, :, robot_entity_cfg.joint_ids]
+                hand_pose_w = robot.data.body_state_w[:, robot_entity_cfg.body_ids[0], 0:7]  # type: ignore
+                root_pose_w = robot.data.root_state_w[:, 0:7]
+                joint_pos = robot.data.joint_pos[:, robot_entity_cfg.joint_ids]
+                # compute frame in root frame
+                hand_pos_b, hand_quat_b = subtract_frame_transforms(
+                    root_pose_w[:, 0:3], root_pose_w[:, 3:7], hand_pose_w[:, 0:3], hand_pose_w[:, 3:7]
+                )
+                joint_pos_des = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
+                # compute the joint commands
+                arm_targets = torch.where(
+                    control_model_switch.view(-1, 1) == 1,
+                    joint_pos_des,
+                    arm_targets,
+                )
+
             # apply actions
             for _ in range(decimation):
                 sim_step_counter += 1
@@ -353,6 +406,7 @@ def run_simulator(
                     sim.render()
                 # update buffers at sim dt
                 scene.update(dt=sim_dt)
+
             count += 1
 
 

@@ -168,6 +168,19 @@ def calculate_angle_between_vectors(v1: torch.Tensor, v2: torch.Tensor):
 
 
 @torch.jit.script
+def quat_unit(a):
+    return normalize(a)
+
+
+@torch.jit.script
+def quat_from_angle_axis(angle, axis):
+    theta = (angle / 2).unsqueeze(-1)
+    xyz = normalize(axis) * theta.sin()
+    w = theta.cos()
+    return quat_unit(torch.cat([w, xyz], dim=-1))
+
+
+@torch.jit.script
 def scale(x, lower, upper):
     return 0.5 * (x + 1.0) * (upper - lower) + lower
 
