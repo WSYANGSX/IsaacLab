@@ -20,7 +20,7 @@ from omni.isaac.lab.managers import RewardTermCfg as RewardTerm
 from omni.isaac.lab.managers import ActionTermCfg as ActionTerm
 from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
 from omni.isaac.lab.utils.noise import AdditiveUniformNoiseCfg as Unoise
-from local_projects.utils.path import get_logs_path
+from my_projects.utils.path import get_logs_path
 
 import omni.isaac.lab_tasks.manager_based.GBAGC_RL.open_pick_place.mdp as mdp
 

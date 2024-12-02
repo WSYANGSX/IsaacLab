@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from omni.isaac.lab.assets import RigidObject, Articulation
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.sensors import FrameTransformer
-from local_projects.utils.math import rotation_distance
+from my_projects.utils.math import rotation_distance
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import torch
+import pandas as pd
+import numpy as np
 from collections import deque
 
 from gymnasium import spaces
@@ -24,7 +26,7 @@ from omni.isaac.lab.utils.math import (
     quat_mul,
 )
 from omni.isaac.core.utils.torch import torch_rand_float
-from local_projects.utils.math import rotation_distance, calculate_angle_between_vectors
+from my_projects.utils.math import rotation_distance, calculate_angle_between_vectors
 
 ##
 # Pre-defined configs
@@ -35,7 +37,7 @@ from omni.isaac.lab.markers.config import FRAME_MARKER_CFG  # isort: skip
 @configclass
 class JointSpaceEnvCfg(DirectRLEnvCfg):
     # env
-    episode_length_s = 12  # 720 timesteps
+    episode_length_s = 8.3333  # 500 timesteps
     decimation = 4
     action_space: spaces.Box = spaces.Box(low=-1, high=1, shape=(7,))
     observation_space: spaces.Box = spaces.Box(low=-torch.inf, high=torch.inf, shape=(33,))
@@ -552,6 +554,7 @@ class JointSpacePlayEnv(JointSpaceEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.cfg.dist_tolerance = 0.005
+        self.cfg.quat_tolerance = 0.08
         self.cfg.episode_length_s = 12
 
     def _curriculum(self):

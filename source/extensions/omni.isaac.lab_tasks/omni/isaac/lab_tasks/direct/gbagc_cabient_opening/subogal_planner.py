@@ -4,7 +4,7 @@ import torch
 
 from collections import defaultdict
 from typing import Optional, Union, Mapping, Sequence, Any
-from local_projects.utils.math import combine_frame_transforms, rotation_distance
+from my_projects.utils.math import combine_frame_transforms, rotation_distance
 
 
 class SubgoalPlanner:

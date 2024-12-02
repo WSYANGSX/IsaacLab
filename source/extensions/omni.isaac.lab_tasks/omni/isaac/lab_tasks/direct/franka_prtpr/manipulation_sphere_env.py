@@ -22,7 +22,7 @@ from omni.isaac.lab.utils.math import (
     quat_conjugate,
     combine_frame_transforms,
 )
-from local_projects.utils.math import rotation_distance, calculate_angle_between_vectors
+from my_projects.utils.math import rotation_distance, calculate_angle_between_vectors
 from omni.isaac.core.utils.torch import torch_rand_float, quat_from_angle_axis
 from omni.isaac.lab.controllers import (
     DifferentialIKControllerCfg,
