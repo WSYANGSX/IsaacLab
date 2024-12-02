@@ -188,7 +188,7 @@ def reset_robot_states(
     sim: sim_utils.SimulationContext,
     robot_dof_lower_limits: torch.Tensor,
     robot_dof_upper_limits: torch.Tensor,
-) -> None:
+) -> tuple[torch.Tensor, torch.Tensor]:
     joint_pos = robot.data.default_joint_pos + sample_uniform(
         -0.125,
         0.125,
@@ -199,6 +199,8 @@ def reset_robot_states(
     joint_vel = torch.zeros_like(joint_pos)
     robot.set_joint_position_target(joint_pos)  # type: ignore
     robot.write_joint_state_to_sim(joint_pos, joint_vel)  # type: ignore
+
+    return joint_pos, joint_vel
 
 
 def get_observations(
@@ -334,8 +336,8 @@ def run_simulator(
                 rot_dist.clear()
 
                 # reset robot joint states
-                reset_robot_states(robot, scene, sim, robot_dof_lower_limits, robot_dof_upper_limits)
-
+                joint_targets, _ = reset_robot_states(robot, scene, sim, robot_dof_lower_limits, robot_dof_upper_limits)
+                arm_targets = joint_targets[:, robot_entity_cfg.joint_ids]
                 # reset target pose
                 target_pos, target_rot = reset_target_pose(scene, sim, target)
 
@@ -347,7 +349,7 @@ def run_simulator(
                 scene.update(sim_dt)
 
                 # compute target hand pose
-                hand_pos_in_ee = torch.tensor((0.0, 0.0, 0.1034), device=sim.device).repeat(scene.num_envs, 1)
+                hand_pos_in_ee = torch.tensor((0.0, 0.0, -0.1034), device=sim.device).repeat(scene.num_envs, 1)
                 hand_quat_in_ee = torch.tensor((1.0, 0.0, 0.0, 0.0), device=sim.device).repeat(scene.num_envs, 1)
 
                 target_hand_pos, target_hand_quat = combine_frame_transforms(
@@ -361,40 +363,41 @@ def run_simulator(
                 print("[INFO]: target_ee_pose:", target_pos, target_rot)
                 print("[INFO]: target_hand_pose:", target_hand_pos, target_hand_quat)
 
-            # get observations
-            obs = get_observations(robot, ee_frame, hand_link_idx, target_pos, target_rot, dist, rot_dist)
+            else:
+                # get observations
+                obs = get_observations(robot, ee_frame, hand_link_idx, target_pos, target_rot, dist, rot_dist)
 
-            if prtpr_agent.has_batch_dimension is False:
-                prtpr_agent.get_batch_size(obs)
-            actions = prtpr_agent.get_action(obs, is_deterministic=True)
+                if prtpr_agent.has_batch_dimension is False:
+                    prtpr_agent.get_batch_size(obs)
+                actions = prtpr_agent.get_action(obs, is_deterministic=True)
 
-            arm_targets = torch.clamp(
-                robot.data.joint_pos[:, :7] + actions * sim_dt * decimation * robot_dof_speed_scales * action_scale,
-                robot_dof_lower_limits[:7],
-                robot_dof_upper_limits[:7],
-            )
+                arm_targets = torch.clamp(
+                    robot.data.joint_pos[:, :7] + actions * sim_dt * decimation * robot_dof_speed_scales * action_scale,
+                    robot_dof_lower_limits[:7],
+                    robot_dof_upper_limits[:7],
+                )
 
-            if any(obs[:, 14] < 0.015):
-                control_model_switch = torch.where(
-                    obs[:, 14] < 0.015, torch.ones_like(control_model_switch), control_model_switch
-                )
-                print(control_model_switch)
-                # obtain quantities from simulation
-                jacobian = robot.root_physx_view.get_jacobians()[:, ee_jacobi_idx, :, robot_entity_cfg.joint_ids]
-                hand_pose_w = robot.data.body_state_w[:, robot_entity_cfg.body_ids[0], 0:7]  # type: ignore
-                root_pose_w = robot.data.root_state_w[:, 0:7]
-                joint_pos = robot.data.joint_pos[:, robot_entity_cfg.joint_ids]
-                # compute frame in root frame
-                hand_pos_b, hand_quat_b = subtract_frame_transforms(
-                    root_pose_w[:, 0:3], root_pose_w[:, 3:7], hand_pose_w[:, 0:3], hand_pose_w[:, 3:7]
-                )
-                joint_pos_des = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
-                # compute the joint commands
-                arm_targets = torch.where(
-                    control_model_switch.view(-1, 1) == 1,
-                    joint_pos_des,
-                    arm_targets,
-                )
+                if any(obs[:, 14] < 0.015):
+                    control_model_switch = torch.where(
+                        obs[:, 14] < 0.015, torch.ones_like(control_model_switch), control_model_switch
+                    )
+
+                    # obtain quantities from simulation
+                    jacobian = robot.root_physx_view.get_jacobians()[:, ee_jacobi_idx, :, robot_entity_cfg.joint_ids]
+                    hand_pose_w = robot.data.body_state_w[:, robot_entity_cfg.body_ids[0], 0:7]  # type: ignore
+                    root_pose_w = robot.data.root_state_w[:, 0:7]
+                    joint_pos = robot.data.joint_pos[:, robot_entity_cfg.joint_ids]
+                    # compute frame in root frame
+                    hand_pos_b, hand_quat_b = subtract_frame_transforms(
+                        root_pose_w[:, 0:3], root_pose_w[:, 3:7], hand_pose_w[:, 0:3], hand_pose_w[:, 3:7]
+                    )
+                    joint_pos_des = diff_ik_controller.compute(hand_pos_b, hand_quat_b, jacobian, joint_pos)
+                    # compute the joint commands
+                    arm_targets = torch.where(
+                        control_model_switch.view(-1, 1) == 1,
+                        joint_pos_des,
+                        arm_targets,
+                    )
 
             # apply actions
             for _ in range(decimation):
