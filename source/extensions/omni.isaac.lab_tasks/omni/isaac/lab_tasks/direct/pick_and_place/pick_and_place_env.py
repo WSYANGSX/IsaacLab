@@ -170,7 +170,7 @@ class PickAndPlaceEnv(DirectRLEnv):
         if self.cfg.train_method == "ppo-dense" or self.cfg.train_method == "ppo-sparse":
             self.action_scale = 0.5
         elif self.cfg.train_method == "ddpg-dense" or self.cfg.train_method == "ddpg-sparse":
-            self.action_scale = 0.2
+            self.action_scale = 0.5
             self.cfg.cube_lifted_height = 0.08
         else:
             raise ValueError("Undefinded train method.")
@@ -200,6 +200,7 @@ class PickAndPlaceEnv(DirectRLEnv):
 
         print("[INFO]: Train method: ", self.cfg.train_method)
         print("[INFO]: Action scale: ", self.action_scale)
+        print("[INFO]: Cube lifted height: ", self.cfg.cube_lifted_height)
 
     def _setup_scene(self):
         # robot
@@ -340,8 +341,8 @@ class PickAndPlaceEnv(DirectRLEnv):
             env_ids=env_ids,  # type: ignore
         )
 
-        self.actions[env_ids] = torch.zeros_like(self.actions[env_ids])
-        self.prev_actions[env_ids] = torch.zeros_like(self.prev_actions[env_ids])
+        self.actions[env_ids] = 0
+        self.prev_actions[env_ids] = 0
 
         self.cube_lifted[env_ids] = 0
         self.successes[env_ids] = 0

@@ -31,6 +31,7 @@ class DeterministicActor(DeterministicMixin, Model):
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, self.num_actions),
+            nn.Tanh()
         )
 
     def compute(self, inputs, role):
@@ -79,7 +80,7 @@ models1["target_critic"] = Critic(env.observation_space, env.action_space, devic
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#configuration-and-hyperparameters
 cfg = DDPG_DEFAULT_CONFIG.copy()
-cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.1, base_scale=0.5, device=device)
+cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.2, base_scale=1, device=device)
 cfg["gradient_steps"] = 1
 cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
