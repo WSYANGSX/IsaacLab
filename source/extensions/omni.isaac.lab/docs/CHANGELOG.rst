@@ -1,6 +1,55 @@
 Changelog
 ---------
 
+0.30.1 (2024-12-17)
+~~~~~~~~~~~~~~~~~~~
+
+Added
+^^^^^
+
+* Added null-space (position) control option to :class:`omni.isaac.lab.controllers.OperationalSpaceController`.
+* Added test cases that uses null-space control for :class:`omni.isaac.lab.controllers.OperationalSpaceController`.
+* Added information regarding null-space control to the tutorial script and documentation of
+  :class:`omni.isaac.lab.controllers.OperationalSpaceController`.
+* Added arguments to set specific null-space joint position targets within
+  :class:`omni.isaac.lab.envs.mdp.actions.OperationalSpaceControllerAction` class.
+
+
+0.30.0 (2024-12-16)
+~~~~~~~~~~~~~~~~~~~
+
+Changed
+^^^^^^^
+
+* Previously, physx returns the rigid bodies and articulations velocities in the com of bodies rather than the link frame, while poses are in link frames. We now explicitly provide :attr:`body_link_state` and :attr:`body_com_state` APIs replacing the previous :attr:`body_state` API. Previous APIs are now marked as deprecated. Please update any code using the previous pose and velocity APIs to use the new ``*_link_*`` or ``*_com_*`` APIs in :attr:`omni.isaac_lab.assets.RigidBody`, :attr:`omni.isaac_lab.assets.RigidBodyCollection`, and :attr:`omni.isaac_lab.assets.Articulation`.
+
+
+0.29.3 (2024-12-16)
+~~~~~~~~~~~~~~~~~~~
+
+Fixed
+^^^^^
+
+* Fixed ordering of logging and resamping in the command manager, where we were logging the metrics after resampling the commands. This leads to incorrect logging of metrics when inside the resample call, the metrics tensors get reset.
+
+
+0.29.2 (2024-12-16)
+~~~~~~~~~~~~~~~~~~~
+
+Fixed
+^^^^^
+
+* Fixed errors within the calculations of :class:`omni.isaac.lab.controllers.OperationalSpaceController`.
+
+Added
+^^^^^
+
+* Added :class:`omni.isaac.lab.controllers.OperationalSpaceController` to API documentation.
+* Added test cases for :class:`omni.isaac.lab.controllers.OperationalSpaceController`.
+* Added a tutorial for :class:`omni.isaac.lab.controllers.OperationalSpaceController`.
+* Added the implementation of :class:`omni.isaac.lab.envs.mdp.actions.OperationalSpaceControllerAction` class.
+
+
 0.29.1 (2024-12-15)
 ~~~~~~~~~~~~~~~~~~~
 
