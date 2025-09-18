@@ -866,6 +866,7 @@ class Articulation(AssetBase):
         else:
             friction_props = self.root_physx_view.get_dof_friction_properties()
             friction_props[physx_env_ids.cpu(), :, 0] = self._data.joint_friction_coeff[physx_env_ids, :].cpu()
+            self.root_physx_view.set_dof_friction_properties(friction_props, indices=physx_env_ids.cpu())
 
     def write_joint_dynamic_friction_coefficient_to_sim(
         self,
@@ -891,6 +892,7 @@ class Articulation(AssetBase):
         # set into simulation
         friction_props = self.root_physx_view.get_dof_friction_properties()
         friction_props[physx_env_ids.cpu(), :, 1] = self._data.joint_dynamic_friction_coeff[physx_env_ids, :].cpu()
+        self.root_physx_view.set_dof_friction_properties(friction_props, indices=physx_env_ids.cpu())
 
     def write_joint_viscous_friction_coefficient_to_sim(
         self,
@@ -916,6 +918,7 @@ class Articulation(AssetBase):
         # set into simulation
         friction_props = self.root_physx_view.get_dof_friction_properties()
         friction_props[physx_env_ids.cpu(), :, 2] = self._data.joint_viscous_friction_coeff[physx_env_ids, :].cpu()
+        self.root_physx_view.set_dof_friction_properties(friction_props, indices=physx_env_ids.cpu())
 
     """
     Operations - Setters.
@@ -1455,6 +1458,7 @@ class Articulation(AssetBase):
             first_env_root_prims = sim_utils.get_all_matching_child_prims(
                 first_env_matching_prim_path,
                 predicate=lambda prim: prim.HasAPI(UsdPhysics.ArticulationRootAPI),
+                traverse_instance_prims=False,
             )
             if len(first_env_root_prims) == 0:
                 raise RuntimeError(
