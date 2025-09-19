@@ -10,7 +10,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObject
 from isaaclab.envs import DirectRLEnv
 from isaaclab.utils import configclass
-from omni.isaac.core.utils.torch import torch_rand_float
+from isaacsim.core.utils.torch import torch_rand_float
 from isaaclab.utils.math import (
     quat_mul,
     quat_from_angle_axis,

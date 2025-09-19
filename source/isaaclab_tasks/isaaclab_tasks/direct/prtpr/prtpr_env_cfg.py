@@ -13,26 +13,19 @@ from isaaclab.utils import configclass
 
 
 @configclass
-class EventCfg:
-    """Configuration for randomization."""
-
-    pass
-
-
-@configclass
 class PrtprEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 2
     episode_length_s = 10
-    num_actions = 4
-    num_observations = 19
-    num_states = 0
+    decimation = 2
+    action_space = 4
+    observation_space = 36
+    state_space = 0
     asymmetric_obs = False
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
-        render_interval=2,
+        render_interval=decimation,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
@@ -45,7 +38,7 @@ class PrtprEnvCfg(DirectRLEnvCfg):
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        num_envs=4096, env_spacing=3.0, replicate_physics=True
+        num_envs=4096, env_spacing=3.0, replicate_physics=True, clone_in_fabric=True
     )
 
     # cube
@@ -92,18 +85,13 @@ class PrtprEnvCfg(DirectRLEnvCfg):
     dist_tolerance = 0.1
     rot_tolerance = 0.1
 
-    # domain randomization config
-    events: EventCfg = EventCfg()
-
     # at every time-step add gaussian noise + bias. The bias is a gaussian sampled at reset
     action_noise_model: NoiseModelWithAdditiveBiasCfg = NoiseModelWithAdditiveBiasCfg(
         noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.05, operation="add"),
         bias_noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.015, operation="abs"),
     )
     # at every time-step add gaussian noise + bias. The bias is a gaussian sampled at reset
-    observation_noise_model: NoiseModelWithAdditiveBiasCfg = (
-        NoiseModelWithAdditiveBiasCfg(
-            noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.001, operation="add"),
-            bias_noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.001, operation="abs"),
-        )
+    observation_noise_model: NoiseModelWithAdditiveBiasCfg = NoiseModelWithAdditiveBiasCfg(
+        noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.001, operation="add"),
+        bias_noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.001, operation="abs"),
     )
