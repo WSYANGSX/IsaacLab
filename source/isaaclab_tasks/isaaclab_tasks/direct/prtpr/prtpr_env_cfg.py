@@ -18,7 +18,7 @@ class PrtprEnvCfg(DirectRLEnvCfg):
     episode_length_s = 10
     decimation = 2
     action_space = 4
-    observation_space = 36
+    observation_space = 19
     state_space = 0
     asymmetric_obs = False
 
