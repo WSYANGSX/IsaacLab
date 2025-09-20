@@ -13,7 +13,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, ISAAC_NUCLEUS_DIR
 from isaaclab.controllers import DifferentialIKControllerCfg, DifferentialIKController
 from isaaclab.utils.math import (
     sample_uniform,
@@ -32,9 +32,9 @@ class TargetSpaceEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 12  # 720 timesteps
     decimation = 4
-    actions_space = 4
-    observations_space = 23
-    states_space = 0
+    action_space = 4
+    observation_space = 23
+    state_space = 0
     asymmetric_obs = False
 
     # simulation
@@ -59,7 +59,7 @@ class TargetSpaceEnvCfg(DirectRLEnvCfg):
     robot: ArticulationCfg = ArticulationCfg(
         prim_path="/World/envs/env_.*/Robot",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/Franka/franka_instanceable.usd",
+            usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Robots/FrankaEmika/panda_instanceable.usd",
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=True,
@@ -221,8 +221,6 @@ class TargetSpaceEnv(DirectRLEnv):
 
         # buffers
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
-
-        self.actions = torch.zeros((self.num_envs, self.cfg.num_actions), device=self.device)
 
         # robot relative
         self.robot_hand_pos = torch.zeros((self.num_envs, 3), device=self.device)
