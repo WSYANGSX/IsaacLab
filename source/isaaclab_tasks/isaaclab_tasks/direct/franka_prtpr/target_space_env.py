@@ -3,18 +3,19 @@ from __future__ import annotations
 import torch
 from collections import deque
 
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.actuators.actuator_cfg import ImplicitActuatorCfg
-from omni.isaac.lab.assets import Articulation, ArticulationCfg
-from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
-from omni.isaac.lab.managers import SceneEntityCfg
-from omni.isaac.lab.markers import VisualizationMarkersCfg, VisualizationMarkers
-from omni.isaac.lab.scene import InteractiveSceneCfg
-from omni.isaac.lab.sim import SimulationCfg
-from omni.isaac.lab.terrains import TerrainImporterCfg
-from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
-from omni.isaac.lab.utils.math import (
+import isaaclab.sim as sim_utils
+from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
+from isaaclab.assets import Articulation, ArticulationCfg
+from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.markers import VisualizationMarkersCfg, VisualizationMarkers
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sim import SimulationCfg
+from isaaclab.terrains import TerrainImporterCfg
+from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.controllers import DifferentialIKControllerCfg, DifferentialIKController
+from isaaclab.utils.math import (
     sample_uniform,
     unscale_transform,
     quat_mul,
@@ -22,29 +23,24 @@ from omni.isaac.lab.utils.math import (
     quat_conjugate,
     combine_frame_transforms,
 )
-from my_projects.utils.math import rotation_distance, calculate_angle_between_vectors
-from omni.isaac.core.utils.torch import torch_rand_float, quat_from_angle_axis
-from omni.isaac.lab.controllers import (
-    DifferentialIKControllerCfg,
-    DifferentialIKController,
-)
+from local.utils.math import rotation_distance, calculate_angle_between_vectors
+from isaacsim.core.utils.torch import torch_rand_float, quat_from_angle_axis
 
 
 @configclass
-class ManipulationSphereEnvCfg(DirectRLEnvCfg):
+class TargetSpaceEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 12  # 720 timesteps
     decimation = 4
-    num_actions = 4
-    num_observations = 23
-    num_states = 0
+    actions_space = 4
+    observations_space = 23
+    states_space = 0
     asymmetric_obs = False
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
         render_interval=decimation,
-        disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
@@ -56,7 +52,7 @@ class ManipulationSphereEnvCfg(DirectRLEnvCfg):
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        num_envs=4096, env_spacing=3.0, replicate_physics=True
+        num_envs=4096, env_spacing=3.0, replicate_physics=True, clone_in_fabric=True
     )
 
     # robot
@@ -165,7 +161,7 @@ class ManipulationSphereEnvCfg(DirectRLEnvCfg):
     rot_tolerance = 0.1
 
 
-class ManipulationSphereEnv(DirectRLEnv):
+class TargetSpaceEnv(DirectRLEnv):
     # reset()
     #   |-- _reset_index()          # _compute_intermediate_values, reset all envs
     # pre-physics step calls
@@ -177,11 +173,9 @@ class ManipulationSphereEnv(DirectRLEnv):
     #   |-- _reset_idx(env_ids)     # _compute_intermediate_values
     #   |-- _get_observations()
 
-    cfg: ManipulationSphereEnvCfg
+    cfg: TargetSpaceEnvCfg
 
-    def __init__(
-        self, cfg: ManipulationSphereEnvCfg, render_mode: str | None = None, **kwargs
-    ):
+    def __init__(self, cfg: TargetSpaceEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.dt = self.cfg.sim.dt * self.cfg.decimation
@@ -197,9 +191,7 @@ class ManipulationSphereEnv(DirectRLEnv):
             dtype=torch.float32,
             device=self.device,
         )
-        self.action_lower_limits, self.action_upper_limits = torch.t(
-            self.action_limits.to(self.device)
-        )
+        self.action_lower_limits, self.action_upper_limits = torch.t(self.action_limits.to(self.device))
 
         # visualization markers
         self.target = VisualizationMarkers(self.cfg.target)
@@ -211,40 +203,26 @@ class ManipulationSphereEnv(DirectRLEnv):
         )
 
         # robot propertities
-        self.robot_entity_cfg = SceneEntityCfg(
-            "robot", joint_names=["panda_joint.*"], body_names=["panda_hand"]
-        )
+        self.robot_entity_cfg = SceneEntityCfg("robot", joint_names=["panda_joint.*"], body_names=["panda_hand"])
         self.robot_entity_cfg.resolve(self.scene)
 
         self.hand_link_idx = self.robot_entity_cfg.body_ids[0]  # type: ignore
         self.ee_jacobi_idx = self.robot_entity_cfg.body_ids[0] - 1  # type: ignore
 
-        self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[
-            0, :, 0
-        ].to(device=self.device)
-        self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[
-            0, :, 1
-        ].to(device=self.device)
+        self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
+        self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
 
         self.jacobian = self._robot.root_physx_view.get_jacobians()[
             :, self.ee_jacobi_idx, :, self.robot_entity_cfg.joint_ids
         ]
 
-        self.ee_pos_in_hand = torch.tensor([0.0, 0.0, 0.09], device=self.device).repeat(
-            self.num_envs, 1
-        )
-        self.ee_rot_in_hand = torch.tensor(
-            [1.0, 0.0, 0.0, 0.0], device=self.device
-        ).repeat(self.num_envs, 1)
+        self.ee_pos_in_hand = torch.tensor([0.0, 0.0, 0.09], device=self.device).repeat(self.num_envs, 1)
+        self.ee_rot_in_hand = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
 
         # buffers
-        self.robot_dof_targets = torch.zeros(
-            (self.num_envs, self._robot.num_joints), device=self.device
-        )
+        self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
-        self.actions = torch.zeros(
-            (self.num_envs, self.cfg.num_actions), device=self.device
-        )
+        self.actions = torch.zeros((self.num_envs, self.cfg.num_actions), device=self.device)
 
         # robot relative
         self.robot_hand_pos = torch.zeros((self.num_envs, 3), device=self.device)
@@ -269,14 +247,10 @@ class ManipulationSphereEnv(DirectRLEnv):
 
         self.ik_command = torch.zeros((self.num_envs, 7), device=self.device)
 
-        self.reset_goal_buf = torch.zeros(
-            self.num_envs, dtype=torch.int, device=self.device
-        )
+        self.reset_goal_buf = torch.zeros(self.num_envs, dtype=torch.int, device=self.device)
 
         # successes tracker
-        self.successes = torch.zeros(
-            self.num_envs, dtype=torch.float, device=self.device
-        )
+        self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.last_three_successes_rate = deque(maxlen=3)
 
         print("*************** task initialed *****************")
@@ -302,9 +276,7 @@ class ManipulationSphereEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions.clone().clamp(-1.0, 1.0)
 
-        actions = unscale_transform(
-            self.actions, self.action_lower_limits, self.action_upper_limits
-        )
+        actions = unscale_transform(self.actions, self.action_lower_limits, self.action_upper_limits)
 
         thetas1 = actions[:, 0]
         thetas2 = actions[:, 1]
@@ -314,9 +286,7 @@ class ManipulationSphereEnv(DirectRLEnv):
         _y = dist * torch.cos(thetas2) * torch.sin(thetas1)
         _z = dist * torch.sin(thetas2)
 
-        self.robot_hand_pos_target = self.robot_hand_pos + torch.stack(
-            (_x, _y, _z), dim=-1
-        )
+        self.robot_hand_pos_target = self.robot_hand_pos + torch.stack((_x, _y, _z), dim=-1)
 
         self.current_direction = normalize(torch.stack((_x, _y, _z), dim=-1))
 
@@ -324,9 +294,7 @@ class ManipulationSphereEnv(DirectRLEnv):
         rot = quat_from_angle_axis(angle, self.rot_axis)
         self.robot_hand_rot_target = quat_mul(rot, self.robot_hand_rot)
 
-        self.ik_command = torch.cat(
-            (self.robot_hand_pos_target, self.robot_hand_rot_target), dim=-1
-        )
+        self.ik_command = torch.cat((self.robot_hand_pos_target, self.robot_hand_rot_target), dim=-1)
         self.ik_controller.set_command(self.ik_command)
 
         # compute desire joint pos
@@ -395,15 +363,11 @@ class ManipulationSphereEnv(DirectRLEnv):
         success_rate = succecc_num / self.num_envs
         self.last_three_successes_rate.append(success_rate)
 
-        last_three_successes_rate = torch.tensor(
-            list(self.last_three_successes_rate), device=self.device
-        )
+        last_three_successes_rate = torch.tensor(list(self.last_three_successes_rate), device=self.device)
         print("last three successes rate: ", last_three_successes_rate)
 
         if all(last_three_successes_rate >= 2.0):
-            print(
-                "******************** curriculum performed **************************"
-            )
+            print("******************** curriculum performed **************************")
             self.cfg.dist_tolerance *= 0.8
 
             if self.cfg.dist_tolerance < 0.005:
@@ -421,9 +385,7 @@ class ManipulationSphereEnv(DirectRLEnv):
             (len(env_ids), self._robot.num_joints),  # type: ignore
             self.device,
         )
-        joint_pos = torch.clamp(
-            joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits
-        )
+        joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
         joint_vel = torch.zeros_like(joint_pos)
         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)  # type: ignore
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)  # type: ignore
@@ -444,9 +406,7 @@ class ManipulationSphereEnv(DirectRLEnv):
 
         # ik controller
         self.ik_controller.reset(env_ids)  # type:ignore
-        self.ik_command[env_ids] = torch.cat(
-            (self.robot_hand_pos[env_ids], self.robot_hand_rot[env_ids]), dim=-1
-        )
+        self.ik_command[env_ids] = torch.cat((self.robot_hand_pos[env_ids], self.robot_hand_rot[env_ids]), dim=-1)
         self.ik_controller.set_command(self.ik_command)
 
     def _reset_target_pose(self, env_ids):
@@ -457,9 +417,7 @@ class ManipulationSphereEnv(DirectRLEnv):
         new_pos[:, 2] = torch.abs(new_pos[:, 2]) * 0.35 + 0.15
 
         # reset target rotation
-        new_rot = generate_random_quat_with_z_in_hyposphere(
-            len(env_ids), device=self.device
-        )
+        new_rot = generate_random_quat_with_z_in_hyposphere(len(env_ids), device=self.device)
 
         # update target pose
         self.target_pos[env_ids] = new_pos
@@ -477,9 +435,7 @@ class ManipulationSphereEnv(DirectRLEnv):
             - 1.0
         )[:, :7]
 
-        dist = torch.norm(
-            self.target_pos - self.robot_hand_pos, p=2, dim=-1, keepdim=True
-        )
+        dist = torch.norm(self.target_pos - self.robot_hand_pos, p=2, dim=-1, keepdim=True)
 
         rot_dist = rotation_distance(self.target_rot, self.robot_hand_rot)
         rot_dist = torch.unsqueeze(rot_dist, dim=0).view(-1, 1)
@@ -511,12 +467,9 @@ class ManipulationSphereEnv(DirectRLEnv):
             env_ids = self._robot._ALL_INDICES
 
         self.robot_hand_pos[env_ids] = (
-            self._robot.data.body_pos_w[env_ids, self.hand_link_idx]
-            - self.scene.env_origins[env_ids]
+            self._robot.data.body_pos_w[env_ids, self.hand_link_idx] - self.scene.env_origins[env_ids]
         )
-        self.robot_hand_rot[env_ids] = self._robot.data.body_quat_w[
-            env_ids, self.hand_link_idx
-        ]
+        self.robot_hand_rot[env_ids] = self._robot.data.body_quat_w[env_ids, self.hand_link_idx]
 
         self.last_direction = normalize(self.robot_hand_pos - self.last_robot_hand_pos)
         self.last_robot_hand_pos[env_ids] = self.robot_hand_pos[env_ids]
@@ -533,11 +486,7 @@ class ManipulationSphereEnv(DirectRLEnv):
             self.robot_ee_rot,
         )
 
-        rot_diff = normalize(
-            quat_mul(
-                self.target_rot[env_ids], quat_conjugate(self.robot_ee_rot[env_ids])
-            )
-        )
+        rot_diff = normalize(quat_mul(self.target_rot[env_ids], quat_conjugate(self.robot_ee_rot[env_ids])))
         w = rot_diff[:, 0]
         a = rot_diff[:, 1]
         b = rot_diff[:, 2]
@@ -585,15 +534,10 @@ class ManipulationSphereEnv(DirectRLEnv):
         rot_rew = 1.0 / (torch.abs(rot_dist) + rot_eps) * rot_reward_scale
 
         # regularization on the actions (summed for each environment)
-        action_rew = (
-            torch.sum(self._robot.data.joint_acc[:, :7] ** 2, dim=-1)
-            * action_penalty_scale
-        )
+        action_rew = torch.sum(self._robot.data.joint_acc[:, :7] ** 2, dim=-1) * action_penalty_scale
 
         # direction change angle in rad
-        direction_change_angle = calculate_angle_between_vectors(
-            last_direction, curr_direction
-        ).view(
+        direction_change_angle = calculate_angle_between_vectors(last_direction, curr_direction).view(
             -1,
         )
         direction_change_rew = direction_change_angle * direction_change_penalty_scale
@@ -603,11 +547,7 @@ class ManipulationSphereEnv(DirectRLEnv):
 
         # Total reward is: position distance + orientation alignment + action regularization + success bonus + fall penalty
         reward = (
-            dist_rew
-            + rot_rew
-            + action_rew
-            + eposide_length_penalty
-            + direction_change_rew
+            dist_rew + rot_rew + action_rew + eposide_length_penalty + direction_change_rew
         )  # reward的shape为(num_envs, )
 
         # Find out which envs hit the target and update successes count
@@ -635,10 +575,10 @@ class ManipulationSphereEnv(DirectRLEnv):
         return reward, successes, target_resets
 
 
-class ManipulationSpherePlayEnv(ManipulationSphereEnv):
+class TargetSpacePlayEnv(TargetSpaceEnv):
     def __init__(
         self,
-        cfg: ManipulationSphereEnvCfg,
+        cfg: TargetSpaceEnvCfg,
         render_mode: str | None = None,
         **kwargs,
     ):
@@ -654,15 +594,12 @@ class ManipulationSpherePlayEnv(ManipulationSphereEnv):
         self.actions = actions.clone().clamp(-1.0, 1.0)
 
         self.actions[:, 3] = torch.where(
-            torch.abs(rotation_distance(self.robot_hand_rot, self.target_rot))
-            <= self.cfg.rot_tolerance,
+            torch.abs(rotation_distance(self.robot_hand_rot, self.target_rot)) <= self.cfg.rot_tolerance,
             torch.zeros_like(self.actions[:, 3]),
             self.actions[:, 3].clone(),
         )
 
-        actions = unscale_transform(
-            self.actions, self.action_lower_limits, self.action_upper_limits
-        )
+        actions = unscale_transform(self.actions, self.action_lower_limits, self.action_upper_limits)
 
         thetas1 = actions[:, 0]
         thetas2 = actions[:, 1]
@@ -672,9 +609,7 @@ class ManipulationSpherePlayEnv(ManipulationSphereEnv):
         _y = dist * torch.cos(thetas2) * torch.sin(thetas1)
         _z = dist * torch.sin(thetas2)
 
-        self.robot_hand_pos_target = self.robot_hand_pos + torch.stack(
-            (_x, _y, _z), dim=-1
-        )
+        self.robot_hand_pos_target = self.robot_hand_pos + torch.stack((_x, _y, _z), dim=-1)
 
         self.curr_direction = torch.stack((_x, _y, _z), dim=-1)
 
@@ -682,9 +617,7 @@ class ManipulationSpherePlayEnv(ManipulationSphereEnv):
         rot = quat_from_angle_axis(angle, self.rot_axis)
         self.robot_hand_rot_target = quat_mul(rot, self.robot_hand_rot)
 
-        self.ik_command = torch.cat(
-            (self.robot_hand_pos_target, self.robot_hand_rot_target), dim=-1
-        )
+        self.ik_command = torch.cat((self.robot_hand_pos_target, self.robot_hand_rot_target), dim=-1)
         self.ik_controller.set_command(self.ik_command)
 
         # compute desire joint pos

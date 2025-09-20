@@ -16,11 +16,11 @@ from . import agents
 
 # MLP Train
 gym.register(
-    id="Isaac-Franka_Prtpr-Direct-ManipulationSphere-v0",
-    entry_point=f"{__name__}.manipulation_sphere_env:ManipulationSphereEnv",
+    id="Isaac-Franka_Prtpr-Direct-TargetSpace-v0",
+    entry_point=f"{__name__}.target_space_env:TargetSpaceEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.manipulation_sphere_env:ManipulationSphereEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.target_space_env:TargetSpaceEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )
@@ -37,11 +37,11 @@ gym.register(
 
 # LSTM Train
 gym.register(
-    id="Isaac-Franka_Prtpr-Direct-ManipulationSphere-Lstm",
-    entry_point=f"{__name__}.manipulation_sphere_env:ManipulationSphereEnv",
+    id="Isaac-Franka_Prtpr-Direct-TargetSpace-Lstm",
+    entry_point=f"{__name__}.target_space_env:TargetSpaceEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.manipulation_sphere_env:ManipulationSphereEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.target_space_env:TargetSpaceEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_lstm_cfg.yaml",
     },
 )
@@ -49,11 +49,11 @@ gym.register(
 
 # Play
 gym.register(
-    id="Isaac-Franka_Prtpr-Direct-ManipulationSphere-Play-v0",
-    entry_point=f"{__name__}.manipulation_sphere_env:ManipulationSphereEnv",
+    id="Isaac-Franka_Prtpr-Direct-TargetSpace-Play-v0",
+    entry_point=f"{__name__}.target_space_env:TargetSpacePlayEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.manipulation_sphere_env:ManipulationSphereEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.target_space_env:TargetSpaceEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
     },
 )

@@ -1,37 +1,34 @@
 from __future__ import annotations
 
 import torch
-import pandas as pd
-import numpy as np
 from collections import deque
 
 from gymnasium import spaces
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.actuators.actuator_cfg import ImplicitActuatorCfg
-from omni.isaac.lab.assets import Articulation, ArticulationCfg
-from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg
-from omni.isaac.lab.managers import SceneEntityCfg
-from omni.isaac.lab.markers import VisualizationMarkersCfg, VisualizationMarkers
-from omni.isaac.lab.scene import InteractiveSceneCfg
-from omni.isaac.lab.sim import SimulationCfg
-from omni.isaac.lab.terrains import TerrainImporterCfg
-from omni.isaac.lab.utils.assets import ISAAC_NUCLEUS_DIR
-from omni.isaac.lab.sensors import FrameTransformerCfg, FrameTransformer
-from omni.isaac.lab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
-
-from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.math import (
+import isaaclab.sim as sim_utils
+from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
+from isaaclab.assets import Articulation, ArticulationCfg
+from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.markers import VisualizationMarkersCfg, VisualizationMarkers
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sim import SimulationCfg
+from isaaclab.terrains import TerrainImporterCfg
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.sensors import FrameTransformerCfg, FrameTransformer
+from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
+from isaaclab.utils import configclass
+from isaaclab.utils.math import (
     sample_uniform,
     quat_from_angle_axis,
     quat_mul,
 )
-from omni.isaac.core.utils.torch import torch_rand_float
-from my_projects.utils.math import rotation_distance, calculate_angle_between_vectors
+from isaacsim.core.utils.torch import torch_rand_float
+from local.utils.math import rotation_distance, calculate_angle_between_vectors
 
 ##
 # Pre-defined configs
 ##
-from omni.isaac.lab.markers.config import FRAME_MARKER_CFG  # isort: skip
+from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
 
 @configclass
@@ -48,7 +45,6 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
         render_interval=decimation,
-        disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
@@ -59,7 +55,9 @@ class JointSpaceEnvCfg(DirectRLEnvCfg):
     )
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(
+        num_envs=4096, env_spacing=3.0, replicate_physics=True, clone_in_fabric=True
+    )
 
     # robot
     robot: ArticulationCfg = ArticulationCfg(
