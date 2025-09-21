@@ -9,7 +9,6 @@ from collections import deque
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObject
 from isaaclab.envs import DirectRLEnv
-from isaaclab.utils import configclass
 from isaacsim.core.utils.torch import torch_rand_float
 from isaaclab.utils.math import (
     quat_mul,
@@ -19,13 +18,6 @@ from isaaclab.utils.math import (
 )
 from isaaclab.markers import VisualizationMarkers
 from .prtpr_env_cfg import PrtprEnvCfg
-
-
-@configclass
-class EventCfg:
-    """Configuration for randomization."""
-
-    pass
 
 
 class PrtprEnv(DirectRLEnv):
