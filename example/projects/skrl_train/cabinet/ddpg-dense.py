@@ -33,7 +33,7 @@ class DeterministicActor(DeterministicMixin, Model):
             nn.Linear(64, self.num_actions),
             nn.Tanh(),
         )
-
+    
     def compute(self, inputs, role):
         return self.net(inputs["states"]), {}
 

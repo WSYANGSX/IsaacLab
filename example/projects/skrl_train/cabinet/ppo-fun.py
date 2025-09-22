@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 # import the skrl components to build the RL system
-from skrl.agents.torch.ppo import PPO_ICM, PPO_ICM_DEFAULT_CONFIG
+from skrl.agents.torch.ppo import PPO_FUN, PPO_FUN_DEFAULT_CONFIG
 from skrl.envs.loaders.torch import load_isaaclab_env
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
@@ -18,45 +18,70 @@ set_seed()  # e.g. `set_seed(42)` for fixed seed
 
 
 # define shared model (stochastic and deterministic models) using mixins
-class Shared(GaussianMixin, DeterministicMixin, Model):
-    def __init__(
-        self,
-        observation_space,
-        action_space,
-        device,
-        clip_actions=False,
-        clip_log_std=True,
-        min_log_std=-20,
-        max_log_std=2,
-        reduction="sum",
-    ):
-        Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
+
+
+class Manager(DeterministicMixin, Model):
+    def __init__(self, observation_space, embedding_dim, device, clip_actions=False):
+        Model.__init__(self, observation_space, action_space=None, device=device)
         DeterministicMixin.__init__(self, clip_actions)
 
         self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
+            nn.Linear(self.num_observations, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, embedding_dim),
+            nn.Tanh(),
+        )
+
+    def compute(self, inputs, role):
+        return self.net(inputs["states"]), {}
+
+
+class GaussianMixinActor(GaussianMixin, Model):
+    def __init__(self, observation_space, action_space, embedding, device, clip_actions=False):
+        Model.__init__(self, observation_space, action_space, device)
+        GaussianMixin.__init__(self, clip_actions)
+
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations + embedding, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
         )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
 
-        self.value_layer = nn.Linear(64, 1)
-
     def act(self, inputs, role):
-        if role == "policy":
-            return GaussianMixin.act(self, inputs, role)
-        elif role == "value":
-            return DeterministicMixin.act(self, inputs, role)
+        return GaussianMixin.act(self, inputs, role)
 
     def compute(self, inputs, role):
-        if role == "policy":
-            self._shared_output = self.net(inputs["states"])
-            return self.mean_layer(self._shared_output), self.log_std_parameter, {}
-        elif role == "value":
-            shared_output = self.net(inputs["states"]) if self._shared_output is None else self._shared_output
-            self._shared_output = None
-            return self.value_layer(shared_output), {}
+        output = self.net(torch.cat([inputs["states"], inputs["goals"]], dim=-1))
+        return self.mean_layer(output), self.log_std_parameter, {}
+
+
+class Critic(DeterministicMixin, Model):
+    def __init__(self, observation_space, action_space, device, clip_actions=False):
+        Model.__init__(self, observation_space, action_space, device)
+        DeterministicMixin.__init__(self, clip_actions)
+
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def compute(self, inputs, role):
+        return self.net(inputs["states"]), {}
 
 
 # load and wrap the Isaac Lab environment
@@ -70,17 +95,9 @@ device = env.device
 memory = RandomMemory(memory_size=96, num_envs=env.num_envs, device=device)
 
 
-# instantiate the agent's models (function approximators).
-# PPO requires 2 models, visit its documentation for more details
-# https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#models
-models = {}
-models["policy"] = Shared(env.observation_space, env.action_space, device)
-models["value"] = models["policy"]  # same instance: shared model
-
-
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
-cfg = PPO_ICM_DEFAULT_CONFIG.copy()
+cfg = PPO_FUN_DEFAULT_CONFIG.copy()
 cfg["rollouts"] = 96  # memory_size
 cfg["learning_epochs"] = 5
 cfg["mini_batches"] = 4  # 96 * 4096 / 98304
@@ -100,7 +117,6 @@ cfg["value_loss_scale"] = 1.0
 cfg["kl_threshold"] = 0
 cfg["rewards_shaper"] = None
 cfg["time_limit_bootstrap"] = True
-cfg["icm_enabled"] = True
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 cfg["value_preprocessor"] = RunningStandardScaler
@@ -108,9 +124,18 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 336
 cfg["experiment"]["checkpoint_interval"] = 3360
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO-dense"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO_FUN"
 
-agent = PPO_ICM(
+# instantiate the agent's models (function approximators).
+# PPO requires 2 models, visit its documentation for more details
+# https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#models
+models = {}
+embedding_dim = cfg["goal_embedding_size"]
+models["manager"] = Manager(env.observation_space, embedding_dim, device)
+models["policy"] = GaussianMixinActor(env.observation_space, env.action_space, embedding_dim, device)
+models["value"] = Critic(env.observation_space, env.action_space, device)  # same instance: shared model
+
+agent = PPO_FUN(
     models=models,
     memory=memory,
     cfg=cfg,
