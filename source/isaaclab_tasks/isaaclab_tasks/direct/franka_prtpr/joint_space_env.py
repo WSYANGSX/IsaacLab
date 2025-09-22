@@ -23,7 +23,7 @@ from isaaclab.utils.math import (
     quat_mul,
 )
 from isaacsim.core.utils.torch import torch_rand_float
-from local.utils.math import rotation_distance, calculate_angle_between_vectors
+from example.utils.math import rotation_distance, calculate_angle_between_vectors
 
 ##
 # Pre-defined configs

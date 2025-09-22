@@ -23,7 +23,7 @@ from isaaclab.utils.math import (
     quat_conjugate,
     combine_frame_transforms,
 )
-from local.utils.math import rotation_distance, calculate_angle_between_vectors
+from example.utils.math import rotation_distance, calculate_angle_between_vectors
 from isaacsim.core.utils.torch import torch_rand_float, quat_from_angle_axis
 
 
