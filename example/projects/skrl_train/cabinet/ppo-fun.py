@@ -1,0 +1,153 @@
+import torch
+import torch.nn as nn
+
+# import the skrl components to build the RL system
+from skrl.agents.torch.ppo import PPO_FUN, PPO_FUN_DEFAULT_CONFIG
+from skrl.envs.loaders.torch import load_isaaclab_env
+from skrl.envs.wrappers.torch import wrap_env
+from skrl.memories.torch import RandomMemory
+from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
+from skrl.resources.preprocessors.torch import RunningStandardScaler
+from skrl.resources.schedulers.torch import KLAdaptiveLR
+from skrl.trainers.torch import SequentialTrainer
+from skrl.utils import set_seed
+
+
+# seed for reproducibility
+set_seed()  # e.g. `set_seed(42)` for fixed seed
+
+
+# define shared model (stochastic and deterministic models) using mixins
+
+
+class Manager(DeterministicMixin, Model):
+    def __init__(self, observation_space, embedding_dim, device, clip_actions=False):
+        Model.__init__(self, observation_space, action_space=None, device=device)
+        DeterministicMixin.__init__(self, clip_actions)
+
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, embedding_dim),
+            nn.Tanh(),
+        )
+
+    def compute(self, inputs, role):
+        return self.net(inputs["states"]), {}
+
+
+class GaussianMixinActor(GaussianMixin, Model):
+    def __init__(self, observation_space, action_space, embedding, device, clip_actions=False):
+        Model.__init__(self, observation_space, action_space, device)
+        GaussianMixin.__init__(self, clip_actions)
+
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations + embedding, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+        )
+
+        self.mean_layer = nn.Linear(64, self.num_actions)
+        self.log_std_parameter = nn.Parameter(torch.ones(self.num_actions))
+
+    def act(self, inputs, role):
+        return GaussianMixin.act(self, inputs, role)
+
+    def compute(self, inputs, role):
+        output = self.net(torch.cat([inputs["states"], inputs["goals"]], dim=-1))
+        return self.mean_layer(output), self.log_std_parameter, {}
+
+
+class Critic(DeterministicMixin, Model):
+    def __init__(self, observation_space, action_space, device, clip_actions=False):
+        Model.__init__(self, observation_space, action_space, device)
+        DeterministicMixin.__init__(self, clip_actions)
+
+        self.net = nn.Sequential(
+            nn.Linear(self.num_observations, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def compute(self, inputs, role):
+        return self.net(inputs["states"]), {}
+
+
+# load and wrap the Isaac Lab environment
+env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Direct-v0", num_envs=1024)
+env = wrap_env(env)
+
+device = env.device
+
+
+# instantiate a memory as rollout buffer (any memory can be used for this)
+memory = RandomMemory(memory_size=96, num_envs=env.num_envs, device=device)
+
+
+# configure and instantiate the agent (visit its documentation to see all the options)
+# https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
+cfg = PPO_FUN_DEFAULT_CONFIG.copy()
+cfg["rollouts"] = 96  # memory_size
+cfg["learning_epochs"] = 5
+cfg["mini_batches"] = 4  # 96 * 4096 / 98304
+cfg["discount_factor"] = 0.99
+cfg["lambda"] = 0.95
+cfg["learning_rate"] = 1e-3
+cfg["learning_rate_scheduler"] = KLAdaptiveLR
+cfg["learning_rate_scheduler_kwargs"] = {"kl_threshold": 0.01, "min_lr": 1e-5}
+cfg["random_timesteps"] = 0
+cfg["learning_starts"] = 0
+cfg["grad_norm_clip"] = 1.0
+cfg["ratio_clip"] = 0.2
+cfg["value_clip"] = 0.2
+cfg["clip_predicted_values"] = True
+cfg["entropy_loss_scale"] = 0.01
+cfg["value_loss_scale"] = 1.0
+cfg["kl_threshold"] = 0
+cfg["rewards_shaper"] = None
+cfg["time_limit_bootstrap"] = True
+cfg["state_preprocessor"] = RunningStandardScaler
+cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
+cfg["value_preprocessor"] = RunningStandardScaler
+cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
+# logging to TensorBoard and write checkpoints (in timesteps)
+cfg["experiment"]["write_interval"] = 336
+cfg["experiment"]["checkpoint_interval"] = 3360
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO_FUN"
+
+# instantiate the agent's models (function approximators).
+# PPO requires 2 models, visit its documentation for more details
+# https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#models
+models = {}
+embedding_dim = cfg["goal_embedding_size"]
+models["manager"] = Manager(env.observation_space, embedding_dim, device)
+models["policy"] = GaussianMixinActor(env.observation_space, env.action_space, embedding_dim, device)
+models["value"] = Critic(env.observation_space, env.action_space, device)  # same instance: shared model
+
+agent = PPO_FUN(
+    models=models,
+    memory=memory,
+    cfg=cfg,
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=device,
+)
+
+
+# configure and instantiate the RL trainer
+cfg_trainer = {"timesteps": 160000, "headless": True}
+trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+
+# start training
+trainer.train()
