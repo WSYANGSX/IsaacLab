@@ -445,14 +445,16 @@ class FrankaCabinetEnv(DirectRLEnv):
         finger_dist_penalty += torch.where(lfinger_dist < 0, lfinger_dist, torch.zeros_like(lfinger_dist))
         finger_dist_penalty += torch.where(rfinger_dist < 0, rfinger_dist, torch.zeros_like(rfinger_dist))
 
-        rewards = (
-            dist_reward_scale * dist_reward
-            + rot_reward_scale * rot_reward
-            + open_reward_scale * open_reward
-            + finger_reward_scale * finger_dist_penalty
-            - action_penalty_scale * action_penalty
-        )
+        # rewards = (
+        #     dist_reward_scale * dist_reward
+        #     + rot_reward_scale * rot_reward
+        #     + open_reward_scale * open_reward
+        #     + finger_reward_scale * finger_dist_penalty
+        #     - action_penalty_scale * action_penalty
+        # )
 
+        rewards = torch.zeros_like(open_reward)
+        
         self.extras["log"] = {
             "dist_reward": (dist_reward_scale * dist_reward).mean(),
             "rot_reward": (rot_reward_scale * rot_reward).mean(),
