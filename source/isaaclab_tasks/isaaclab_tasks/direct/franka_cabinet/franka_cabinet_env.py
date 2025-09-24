@@ -46,9 +46,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     )
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        num_envs=4096, env_spacing=3.0, replicate_physics=True, clone_in_fabric=True
-    )
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
     # robot
     robot = ArticulationCfg(
@@ -82,18 +80,21 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
             "panda_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[1-4]"],
                 effort_limit_sim=87.0,
+                velocity_limit=2.175,
                 stiffness=80.0,
                 damping=4.0,
             ),
             "panda_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[5-7]"],
                 effort_limit_sim=12.0,
+                velocity_limit=2.61,
                 stiffness=80.0,
                 damping=4.0,
             ),
             "panda_hand": ImplicitActuatorCfg(
                 joint_names_expr=["panda_finger_joint.*"],
                 effort_limit_sim=200.0,
+                velocity_limit=0.2,
                 stiffness=2e3,
                 damping=1e2,
             ),
@@ -121,12 +122,14 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
             "drawers": ImplicitActuatorCfg(
                 joint_names_expr=["drawer_top_joint", "drawer_bottom_joint"],
                 effort_limit_sim=87.0,
+                velocity_limit=100.0,
                 stiffness=10.0,
                 damping=1.0,
             ),
             "doors": ImplicitActuatorCfg(
                 joint_names_expr=["door_left_joint", "door_right_joint"],
                 effort_limit_sim=87.0,
+                velocity_limit=100.0,
                 stiffness=10.0,
                 damping=2.5,
             ),
@@ -290,7 +293,8 @@ class FrankaCabinetEnv(DirectRLEnv):
     # post-physics step calls
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        terminated = self._cabinet.data.joint_pos[:, 3] > 0.39
+        # terminated = self._cabinet.data.joint_pos[:, 3] > 0.39
+        terminated = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         truncated = self.episode_length_buf >= self.max_episode_length - 1
         return terminated, truncated
 
@@ -452,8 +456,6 @@ class FrankaCabinetEnv(DirectRLEnv):
             + finger_reward_scale * finger_dist_penalty
             - action_penalty_scale * action_penalty
         )
-
-        # rewards = torch.zeros_like(open_reward)
 
         self.extras["log"] = {
             "dist_reward": (dist_reward_scale * dist_reward).mean(),
