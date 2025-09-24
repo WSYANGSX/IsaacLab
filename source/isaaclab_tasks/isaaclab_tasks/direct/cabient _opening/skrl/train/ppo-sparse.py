@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 # import the skrl components to build the RL system
-from skrl.agents.torch.ppo import PPO_ICM, PPO_ICM_DEFAULT_CONFIG
+from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
 from skrl.envs.loaders.torch import load_isaaclab_env
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
@@ -31,11 +31,18 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         reduction="sum",
     ):
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
+        GaussianMixin.__init__(
+            self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction
+        )
         DeterministicMixin.__init__(self, clip_actions)
 
         self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 512), nn.ELU(), nn.Linear(512, 256), nn.ELU(), nn.Linear(256, 64), nn.ELU()
+            nn.Linear(self.num_observations, 256),
+            nn.ELU(),
+            nn.Linear(256, 128),
+            nn.ELU(),
+            nn.Linear(128, 64),
+            nn.ELU(),
         )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
@@ -54,13 +61,17 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
             self._shared_output = self.net(inputs["states"])
             return self.mean_layer(self._shared_output), self.log_std_parameter, {}
         elif role == "value":
-            shared_output = self.net(inputs["states"]) if self._shared_output is None else self._shared_output
+            shared_output = (
+                self.net(inputs["states"])
+                if self._shared_output is None
+                else self._shared_output
+            )
             self._shared_output = None
             return self.value_layer(shared_output), {}
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -80,9 +91,9 @@ models["value"] = models["policy"]  # same instance: shared model
 
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
-cfg = PPO_ICM_DEFAULT_CONFIG.copy()
+cfg = PPO_DEFAULT_CONFIG.copy()
 cfg["rollouts"] = 96  # memory_size
-cfg["learning_epochs"] = 10
+cfg["learning_epochs"] = 5
 cfg["mini_batches"] = 4  # 96 * 4096 / 98304
 cfg["discount_factor"] = 0.99
 cfg["lambda"] = 0.95
@@ -100,7 +111,6 @@ cfg["value_loss_scale"] = 1.0
 cfg["kl_threshold"] = 0
 cfg["rewards_shaper"] = None
 cfg["time_limit_bootstrap"] = True
-cfg["icm_enabled"] = True
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 cfg["value_preprocessor"] = RunningStandardScaler
@@ -108,9 +118,9 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO-dense"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Cabient_Opening-Direct-PPO-Sparse"
 
-agent = PPO_ICM(
+agent = PPO(
     models=models,
     memory=memory,
     cfg=cfg,
@@ -121,7 +131,7 @@ agent = PPO_ICM(
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 160000, "headless": True}
+cfg_trainer = {"timesteps": 75000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training

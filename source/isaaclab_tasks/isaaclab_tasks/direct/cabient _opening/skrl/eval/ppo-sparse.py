@@ -1,15 +1,16 @@
+import os
+
 import torch
 import torch.nn as nn
 
 # import the skrl components to build the RL system
-from skrl.agents.torch.ppo import PPO_ICM, PPO_ICM_DEFAULT_CONFIG
+from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
 from skrl.envs.loaders.torch import load_isaaclab_env
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.resources.schedulers.torch import KLAdaptiveLR
-from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 
@@ -60,7 +61,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Succ-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -80,9 +81,9 @@ models["value"] = models["policy"]  # same instance: shared model
 
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
-cfg = PPO_ICM_DEFAULT_CONFIG.copy()
+cfg = PPO_DEFAULT_CONFIG.copy()
 cfg["rollouts"] = 96  # memory_size
-cfg["learning_epochs"] = 10
+cfg["learning_epochs"] = 5
 cfg["mini_batches"] = 4  # 96 * 4096 / 98304
 cfg["discount_factor"] = 0.99
 cfg["lambda"] = 0.95
@@ -100,7 +101,6 @@ cfg["value_loss_scale"] = 1.0
 cfg["kl_threshold"] = 0
 cfg["rewards_shaper"] = None
 cfg["time_limit_bootstrap"] = True
-cfg["icm_enabled"] = True
 cfg["state_preprocessor"] = RunningStandardScaler
 cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": device}
 cfg["value_preprocessor"] = RunningStandardScaler
@@ -108,9 +108,9 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Franka-OpenPickPlace-Direct-v0-PPO-dense"
+cfg["experiment"]["directory"] = "runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO-Sparse"
 
-agent = PPO_ICM(
+agent = PPO(
     models=models,
     memory=memory,
     cfg=cfg,
@@ -119,10 +119,32 @@ agent = PPO_ICM(
     device=device,
 )
 
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-PPO-Sparse/abnormal/checkpoints"
+models_list = os.listdir(models_path)
+sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 160000, "headless": True}
-trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+succ_rate = []
 
-# start training
-trainer.train()
+for model in sorted_model_names:
+    agent.load(os.path.join(models_path, model))
+
+    states, infos = env.reset()
+
+    for i in range(env.max_episode_length - 2):  # env eposide-length setting
+        # state-preprocessor + policy
+        with torch.no_grad():
+            states = agent._state_preprocessor(states)
+            actions = agent.policy.act({"states": states}, role="policy")[0]
+
+        # step the environment
+        next_states, rewards, terminated, truncated, infos = env.step(actions)
+
+        # render the environment
+        env.render()
+
+        states = next_states
+
+    succ_rate.append((sum(env.success) / env.num_envs).item())
+
+print(succ_rate)
+env.close()

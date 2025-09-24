@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2024, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -8,7 +8,11 @@ from __future__ import annotations
 import torch
 
 from isaacsim.core.utils.stage import get_current_stage
-from isaacsim.core.utils.torch.transformations import tf_combine, tf_inverse, tf_vector
+from isaacsim.core.utils.torch.transformations import (
+    tf_combine,
+    tf_inverse,
+    tf_vector,
+)
 from pxr import UsdGeom
 
 import isaaclab.sim as sim_utils
@@ -19,12 +23,12 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import sample_uniform
 
 
 @configclass
-class FrankaCabinetEnvCfg(DirectRLEnvCfg):
+class CabientOpeningEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 2
@@ -46,9 +50,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     )
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        num_envs=4096, env_spacing=3.0, replicate_physics=True, clone_in_fabric=True
-    )
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
     # robot
     robot = ArticulationCfg(
@@ -61,7 +63,9 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
                 max_depenetration_velocity=5.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                enabled_self_collisions=False, solver_position_iteration_count=12, solver_velocity_iteration_count=1
+                enabled_self_collisions=False,
+                solver_position_iteration_count=12,
+                solver_velocity_iteration_count=1,
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -81,19 +85,22 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[1-4]"],
-                effort_limit_sim=87.0,
+                effort_limit=87.0,
+                velocity_limit=2.175,
                 stiffness=80.0,
                 damping=4.0,
             ),
             "panda_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[5-7]"],
-                effort_limit_sim=12.0,
+                effort_limit=12.0,
+                velocity_limit=2.61,
                 stiffness=80.0,
                 damping=4.0,
             ),
             "panda_hand": ImplicitActuatorCfg(
                 joint_names_expr=["panda_finger_joint.*"],
-                effort_limit_sim=200.0,
+                effort_limit=200.0,
+                velocity_limit=0.2,
                 stiffness=2e3,
                 damping=1e2,
             ),
@@ -120,13 +127,15 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
         actuators={
             "drawers": ImplicitActuatorCfg(
                 joint_names_expr=["drawer_top_joint", "drawer_bottom_joint"],
-                effort_limit_sim=87.0,
+                effort_limit=87.0,
+                velocity_limit=100.0,
                 stiffness=10.0,
                 damping=1.0,
             ),
             "doors": ImplicitActuatorCfg(
                 joint_names_expr=["door_left_joint", "door_right_joint"],
-                effort_limit_sim=87.0,
+                effort_limit=87.0,
+                velocity_limit=100.0,
                 stiffness=10.0,
                 damping=2.5,
             ),
@@ -153,24 +162,26 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     # reward scales
     dist_reward_scale = 1.5
     rot_reward_scale = 1.5
-    open_reward_scale = 10.0
-    action_penalty_scale = 0.05
+    open_reward_scale = 15.0
+    action_penalty_scale = 0.005
     finger_reward_scale = 2.0
 
 
-class FrankaCabinetEnv(DirectRLEnv):
+class CabientOpeningEnv(DirectRLEnv):
+    # reset()
+    #   |-- _reset_index()          # _compute_intermediate_values, reset all envs
     # pre-physics step calls
     #   |-- _pre_physics_step(action)
     #   |-- _apply_action()
     # post-physics step calls
-    #   |-- _get_dones()
+    #   |-- _get_dones()            # _compute_intermediate_values
     #   |-- _get_rewards()
-    #   |-- _reset_idx(env_ids)
+    #   |-- _reset_idx(env_ids)     # _compute_intermediate_values
     #   |-- _get_observations()
 
-    cfg: FrankaCabinetEnvCfg
+    cfg: CabientOpeningEnvCfg
 
-    def __init__(self, cfg: FrankaCabinetEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: CabientOpeningEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         def get_env_local_pose(env_pos: torch.Tensor, xformable: UsdGeom.Xformable, device: torch.device):
@@ -257,6 +268,9 @@ class FrankaCabinetEnv(DirectRLEnv):
         self.drawer_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
         self.drawer_grasp_pos = torch.zeros((self.num_envs, 3), device=self.device)
 
+        # success rate
+        self.successes = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
         self._cabinet = Articulation(self.cfg.cabinet)
@@ -267,11 +281,9 @@ class FrankaCabinetEnv(DirectRLEnv):
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
 
-        # clone and replicate
+        # clone, filter, and replicate
         self.scene.clone_environments(copy_from_source=False)
-        # we need to explicitly filter collisions for CPU simulation
-        if self.device == "cpu":
-            self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
+        self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
 
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -290,7 +302,7 @@ class FrankaCabinetEnv(DirectRLEnv):
     # post-physics step calls
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        terminated = self._cabinet.data.joint_pos[:, 3] > 0.39
+        terminated = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         truncated = self.episode_length_buf >= self.max_episode_length - 1
         return terminated, truncated
 
@@ -300,7 +312,7 @@ class FrankaCabinetEnv(DirectRLEnv):
         robot_left_finger_pos = self._robot.data.body_pos_w[:, self.left_finger_link_idx]
         robot_right_finger_pos = self._robot.data.body_pos_w[:, self.right_finger_link_idx]
 
-        return self._compute_rewards(
+        reward, self.successes = self._compute_rewards(
             self.actions,
             self._cabinet.data.joint_pos,
             self.robot_grasp_pos,
@@ -319,8 +331,10 @@ class FrankaCabinetEnv(DirectRLEnv):
             self.cfg.open_reward_scale,
             self.cfg.action_penalty_scale,
             self.cfg.finger_reward_scale,
-            self._robot.data.joint_pos,
+            self.successes,
         )
+
+        return reward
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         super()._reset_idx(env_ids)
@@ -342,6 +356,8 @@ class FrankaCabinetEnv(DirectRLEnv):
 
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
+
+        self.successes[env_ids] = 0
 
     def _get_observations(self) -> dict:
         dof_pos_scaled = (
@@ -410,8 +426,9 @@ class FrankaCabinetEnv(DirectRLEnv):
         open_reward_scale,
         action_penalty_scale,
         finger_reward_scale,
-        joint_positions,
+        success,
     ):
+        # dense reward
         # distance from hand to the drawer
         d = torch.norm(franka_grasp_pos - drawer_grasp_pos, p=2, dim=-1)
         dist_reward = 1.0 / (1.0 + d**2)
@@ -453,8 +470,6 @@ class FrankaCabinetEnv(DirectRLEnv):
             - action_penalty_scale * action_penalty
         )
 
-        # rewards = torch.zeros_like(open_reward)
-
         self.extras["log"] = {
             "dist_reward": (dist_reward_scale * dist_reward).mean(),
             "rot_reward": (rot_reward_scale * rot_reward).mean(),
@@ -465,14 +480,18 @@ class FrankaCabinetEnv(DirectRLEnv):
             "finger_dist_penalty": (finger_reward_scale * finger_dist_penalty).mean(),
         }
 
-        # # bonus for opening drawer properly
-        # rewards = torch.where(d < 0.01, rewards + 0.25, rewards)
-
+        # bonus for opening drawer properly
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.01, rewards + 0.25, rewards)
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.2, rewards + 0.25, rewards)
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.35, rewards + 0.25, rewards)
 
-        return rewards
+        success = torch.where(
+            cabinet_dof_pos[:, 3] > 0.35,
+            torch.ones_like(cabinet_dof_pos[:, 3]),
+            torch.zeros_like(cabinet_dof_pos[:, 3]),
+        )
+
+        return rewards, success
 
     def _compute_grasp_transforms(
         self,
@@ -492,4 +511,9 @@ class FrankaCabinetEnv(DirectRLEnv):
             drawer_rot, drawer_pos, drawer_local_grasp_rot, drawer_local_grasp_pos
         )
 
-        return global_franka_rot, global_franka_pos, global_drawer_rot, global_drawer_pos
+        return (
+            global_franka_rot,
+            global_franka_pos,
+            global_drawer_rot,
+            global_drawer_pos,
+        )
