@@ -60,14 +60,14 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=4096)
 env = wrap_env(env)
 
 device = env.device
 
 
 # instantiate a memory as rollout buffer (any memory can be used for this)
-memory = RandomMemory(memory_size=96, num_envs=env.num_envs, device=device)
+memory = RandomMemory(memory_size=16, num_envs=env.num_envs, device=device)
 
 
 # instantiate the agent's models (function approximators).
@@ -81,10 +81,9 @@ models["value"] = models["policy"]  # same instance: shared model
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
 cfg = PPO_DEFAULT_CONFIG.copy()
-cfg = PPO_DEFAULT_CONFIG.copy()
-cfg["rollouts"] = 96  # memory_size
-cfg["learning_epochs"] = 5
-cfg["mini_batches"] = 4  # 96 * 4096 / 98304
+cfg["rollouts"] = 16  # memory_size
+cfg["learning_epochs"] = 8
+cfg["mini_batches"] = 8  # 96 * 4096 / 98304
 cfg["discount_factor"] = 0.99
 cfg["lambda"] = 0.95
 cfg["learning_rate"] = 1e-3

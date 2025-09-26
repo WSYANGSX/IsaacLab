@@ -85,22 +85,19 @@ class CabientOpeningEnvCfg(DirectRLEnvCfg):
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[1-4]"],
-                effort_limit=87.0,
-                velocity_limit=2.175,
+                effort_limit_sim=87.0,
                 stiffness=80.0,
                 damping=4.0,
             ),
             "panda_forearm": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[5-7]"],
-                effort_limit=12.0,
-                velocity_limit=2.61,
+                effort_limit_sim=12.0,
                 stiffness=80.0,
                 damping=4.0,
             ),
             "panda_hand": ImplicitActuatorCfg(
                 joint_names_expr=["panda_finger_joint.*"],
-                effort_limit=200.0,
-                velocity_limit=0.2,
+                effort_limit_sim=200.0,
                 stiffness=2e3,
                 damping=1e2,
             ),
@@ -127,15 +124,13 @@ class CabientOpeningEnvCfg(DirectRLEnvCfg):
         actuators={
             "drawers": ImplicitActuatorCfg(
                 joint_names_expr=["drawer_top_joint", "drawer_bottom_joint"],
-                effort_limit=87.0,
-                velocity_limit=100.0,
+                effort_limit_sim=87.0,
                 stiffness=10.0,
                 damping=1.0,
             ),
             "doors": ImplicitActuatorCfg(
                 joint_names_expr=["door_left_joint", "door_right_joint"],
-                effort_limit=87.0,
-                velocity_limit=100.0,
+                effort_limit_sim=87.0,
                 stiffness=10.0,
                 damping=2.5,
             ),
@@ -162,8 +157,8 @@ class CabientOpeningEnvCfg(DirectRLEnvCfg):
     # reward scales
     dist_reward_scale = 1.5
     rot_reward_scale = 1.5
-    open_reward_scale = 15.0
-    action_penalty_scale = 0.005
+    open_reward_scale = 20.0
+    action_penalty_scale = 0.05
     finger_reward_scale = 2.0
 
 
@@ -482,8 +477,8 @@ class CabientOpeningEnv(DirectRLEnv):
 
         # bonus for opening drawer properly
         rewards = torch.where(cabinet_dof_pos[:, 3] > 0.01, rewards + 0.25, rewards)
-        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.2, rewards + 0.25, rewards)
-        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.35, rewards + 0.25, rewards)
+        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.2, rewards + 0.5, rewards)
+        rewards = torch.where(cabinet_dof_pos[:, 3] > 0.35, rewards + 0.75, rewards)
 
         success = torch.where(
             cabinet_dof_pos[:, 3] > 0.35,

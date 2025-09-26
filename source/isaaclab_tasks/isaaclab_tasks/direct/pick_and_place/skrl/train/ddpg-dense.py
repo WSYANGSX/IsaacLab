@@ -31,7 +31,7 @@ class DeterministicActor(DeterministicMixin, Model):
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, self.num_actions),
-            nn.Tanh(),
+            nn.Tanh()
         )
 
     def compute(self, inputs, role):
@@ -58,7 +58,7 @@ class Critic(DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -80,7 +80,7 @@ models1["target_critic"] = Critic(env.observation_space, env.action_space, devic
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ddpg.html#configuration-and-hyperparameters
 cfg = DDPG_DEFAULT_CONFIG.copy()
-cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.1, base_scale=0.5, device=device)
+cfg["exploration"]["noise"] = OrnsteinUhlenbeckNoise(theta=0.15, sigma=0.2, base_scale=1, device=device)
 cfg["gradient_steps"] = 1
 cfg["batch_size"] = 4096
 cfg["discount_factor"] = 0.99
@@ -94,7 +94,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Cabient_Opening-Direct-DDPG-Dense"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-Direct-v0-DDPG-Dense"
 
 agent = DDPG(
     models=models1,
@@ -113,6 +113,11 @@ trainer = SequentialTrainer(
     env=env,
     agents=agent,
 )
+
+# # Load the checkpoint
+# agent.load(
+#     "./runs/torch/Isaac-Pick_And_Place-Direct-v0-DDPG-Dense/24-11-21_09-21-10-908667_DDPG/checkpoints/agent_75000.pt"
+# )
 
 # start training
 trainer.train()

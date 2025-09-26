@@ -31,18 +31,11 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         reduction="sum",
     ):
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(
-            self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction
-        )
+        GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
         self.net = nn.Sequential(
-            nn.Linear(self.num_observations, 256),
-            nn.ELU(),
-            nn.Linear(256, 128),
-            nn.ELU(),
-            nn.Linear(128, 64),
-            nn.ELU(),
+            nn.Linear(self.num_observations, 256), nn.ELU(), nn.Linear(256, 128), nn.ELU(), nn.Linear(128, 64), nn.ELU()
         )
 
         self.mean_layer = nn.Linear(64, self.num_actions)
@@ -61,24 +54,20 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
             self._shared_output = self.net(inputs["states"])
             return self.mean_layer(self._shared_output), self.log_std_parameter, {}
         elif role == "value":
-            shared_output = (
-                self.net(inputs["states"])
-                if self._shared_output is None
-                else self._shared_output
-            )
+            shared_output = self.net(inputs["states"]) if self._shared_output is None else self._shared_output
             self._shared_output = None
             return self.value_layer(shared_output), {}
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Pick_And_Place-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
 
 
 # instantiate a memory as rollout buffer (any memory can be used for this)
-memory = RandomMemory(memory_size=96, num_envs=env.num_envs, device=device)
+memory = RandomMemory(memory_size=16, num_envs=env.num_envs, device=device)
 
 
 # instantiate the agent's models (function approximators).
@@ -92,9 +81,9 @@ models["value"] = models["policy"]  # same instance: shared model
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
 cfg = PPO_DEFAULT_CONFIG.copy()
-cfg["rollouts"] = 96  # memory_size
-cfg["learning_epochs"] = 5
-cfg["mini_batches"] = 4  # 96 * 4096 / 98304
+cfg["rollouts"] = 16  # memory_size
+cfg["learning_epochs"] = 8
+cfg["mini_batches"] = 8  # 16 * 4096 / 98304
 cfg["discount_factor"] = 0.99
 cfg["lambda"] = 0.95
 cfg["learning_rate"] = 1e-3
@@ -118,7 +107,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Cabient_Opening-Direct-PPO-Sparse"
+cfg["experiment"]["directory"] = "runs/torch/Isaac-Pick_And_Place-Direct-v0-PPO-Dense"
 
 agent = PPO(
     models=models,
@@ -136,3 +125,16 @@ trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
 trainer.train()
+
+
+# # ---------------------------------------------------------
+# # comment the code above: `trainer.train()`, and...
+# # uncomment the following lines to evaluate a trained agent
+# # ---------------------------------------------------------
+
+# # download the trained agent's checkpoint from Hugging Face Hub and load it
+# path = "./runs/torch/Isaac-Pick_And_Place-Direct-v0-PPO-Dense/1/checkpoints/best_agent.pt"
+# agent.load(path)
+
+# # start evaluation
+# trainer.eval()

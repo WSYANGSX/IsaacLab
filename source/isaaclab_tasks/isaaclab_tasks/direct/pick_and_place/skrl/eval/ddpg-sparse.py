@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 
@@ -9,7 +11,6 @@ from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, Model
 from skrl.resources.noises.torch import OrnsteinUhlenbeckNoise
 from skrl.resources.preprocessors.torch import RunningStandardScaler
-from skrl.trainers.torch import SequentialTrainer
 from skrl.utils import set_seed
 
 
@@ -58,7 +59,7 @@ class Critic(DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Lab environment
-env = load_isaaclab_env(task_name="Isaac-Cabient_Opening-Direct-v0", num_envs=1024)
+env = load_isaaclab_env(task_name="Isaac-Franka-Cabinet-Succ-Direct-v0", num_envs=1024)
 env = wrap_env(env)
 
 device = env.device
@@ -94,7 +95,7 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Isaac-Cabient_Opening-Direct-DDPG-Dense"
+cfg["experiment"]["directory"] = "runs/torch/Pick_And_Place/Isaac-Pick_And_Place-Direct-v0-DDPG-Sparse"
 
 agent = DDPG(
     models=models1,
@@ -106,13 +107,32 @@ agent = DDPG(
 )
 
 
-# configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 75000, "headless": True}
-trainer = SequentialTrainer(
-    cfg=cfg_trainer,
-    env=env,
-    agents=agent,
-)
+models_path = "./runs/torch/Cabinet-Opening/Isaac-Franka-Cabinet-Succ-Direct-DDPG-Sparse/5/checkpoints"
+models_list = os.listdir(models_path)
+sorted_model_names = sorted(models_list, key=lambda x: int(x.split("_")[1].split(".")[0]))
 
-# start training
-trainer.train()
+succ_rate = []
+
+for model in sorted_model_names:
+    agent.load(os.path.join(models_path, model))
+
+    states, infos = env.reset()
+
+    for i in range(env.max_episode_length - 2):  # env eposide-length setting
+        # state-preprocessor + policy
+        with torch.no_grad():
+            states = agent._state_preprocessor(states)
+            actions = agent.policy.act({"states": states}, role="policy")[0]
+
+        # step the environment
+        next_states, rewards, terminated, truncated, infos = env.step(actions)
+
+        # render the environment
+        env.render()
+
+        states = next_states
+
+    succ_rate.append((sum(env.success) / env.num_envs).item())
+
+print(succ_rate)
+env.close()
